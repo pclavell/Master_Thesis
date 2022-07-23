@@ -1,0 +1,697 @@
+---
+title: "bulkrnaseqPDX"
+output: html_document
+---
+
+- És possible que els gens implicats en la resistència variin segons els PDX i que aleshores s'elimini al considerar el PDX com a adjustment variable.
+
+```{r setup, warning=FALSE, message=FALSE, include=FALSE}
+knitr::opts_chunk$set(cache = T, warning=F, message=F)
+
+```
+fer el grafic d'alpha per l'altre contrast i fer bonics els gràfics del pre-ranked GSEA pels dos contrastos
+
+```{r packages_preparation}
+setwd("C:/Users/paucl/Documents/TFM/DEA")
+
+packages <- c("dplyr","EDASeq", "stringr", "ggbio", "ggplot2","limma", "EnhancedVolcano", "biomaRt", "edgeR", "tweeDEseq", "clusterProfiler","DESeq2", "pheatmap", "fgsea")
+lapply(packages, library, character.only = TRUE)
+```
+
+```{r functions_definitions}
+################## FUNCTION DEFINITION #########################################
+#------------------------------------------------------------------------------
+
+## FUNCTION to visualise DEresults
+
+visualize_DEresults <- function(DEresults, dds){
+  # MA plot
+  DESeq2::plotMA(object = dds, ylim = c(-6, 6), main="MA plot")
+  
+  # P-values histogram
+  print(ggplot(data = as.data.frame(DEresults), aes(x = pvalue)) +
+    geom_histogram(bins = 100)+
+    ggtitle("P-value"))+
+  theme_classic()
+  print(ggplot(data = as.data.frame(DEresults), aes(x = padj)) +
+    geom_histogram(bins = 100)+
+    ggtitle("Adjusted P-value"))+
+  theme_classic()
+  
+  
+  # QQ-plot of p-values
+  GWASTools::qqPlot(DEresults$pvalue, main ="P-value")
+  GWASTools::qqPlot(DEresults$padj, main ="Adjusted P-value")
+  
+}
+
+## FUNCTION to extract significant genes
+extract_sig <- function(DEresults, pcut=0.05, fcut=0.585, just.names=T, pname= "padj", fname="log2FoldChange", symbol.colname= "symbol"){
+  sig <- DEresults%>%
+    filter(!is.na(pname))%>%
+    filter(pname<pcut)%>%
+    filter(abs(get(fname))>fcut)
+  if(just.names){
+    sig <- sig%>%
+      select(symbol.colname)
+  }
+  return(sig)  
+}
+
+
+## FUNCTION to create volcanoplot, heatmap and correlations plot with the option to create pdfs
+
+plot_volcheatcor <- function(DEresults, normalized_counts, phenodata, pvalcut= 0.05, FCcut= 1, condition="condition", save=FALSE, output_path=NULL, ylim=c(0,10)){
+  
+  # Volcano Plot
+  volcano <- EnhancedVolcano(DEresults,
+                             lab = rownames(DEresults),
+                             x = 'log2FoldChange',
+                             y = 'padj',
+                             FCcutoff = FCcut, 
+                             pCutoff = pvalcut,
+                             ylim= ylim,
+                             subtitle = "",
+                             selectLab=F)
+  print(volcano)
+  
+  # Check data
+  DEresults_noNA <- DEresults[!is.na(DEresults$padj),]
+  selectedGenes <- rownames(DEresults_noNA[DEresults_noNA$padj<pvalcut & abs(DEresults_noNA$log2FoldChange)>FCcut,])
+  
+  # Subset
+  normalized_counts_sub <- normalized_counts[rownames(normalized_counts)%in%selectedGenes,]
+  
+  # Print number of selected genes
+  print(paste0("Number of selected genes:", dim(normalized_counts_sub)[1]))
+  
+  # Pearson correlation pair-wise
+  corr_coeff <- cor(normalized_counts_sub, method = "pearson")
+  correlations <- pheatmap::pheatmap(corr_coeff, main = "Pearson correlation")
+  
+  # Prepare heatmap input
+  annotation_col <- as.data.frame(phenodata[,grep(paste0("^",condition, "$"), colnames(phenodata))])# Create a df with condition column
+  colnames(annotation_col) <- condition
+  rownames(annotation_col) <- colnames(normalized_counts_sub)
+  
+  
+  # Change names
+  rownames(normalized_counts_sub) <- gene_metadata$gene_symbol[gene_metadata$ensembl_id%in%rownames(normalized_counts_sub)]
+  
+  
+  # Plot Heatmap
+  heatmap <-pheatmap(normalized_counts_sub,
+                     annotation_col = annotation_col,
+                     show_rownames = T,
+                     cutree_cols=2,
+                     main="Heatmap",
+                     scale= "row")
+  if(save==T){
+    volcano.file <- paste0(output_path,"volcanoplot_", analysis_name, ".pdf")
+    heatmap.file <- paste0(output_path,"heatmap_", analysis_name, ".pdf")
+    correlations.file <- paste0(output_path,"correlations_", analysis_name, ".pdf")
+    
+    pdf(volcano.file)
+    print(volcano)
+    dev.off()
+    
+    pdf(heatmap.file)
+    print(heatmap)
+    dev.off()
+    
+    pdf(correlations.file)
+    print(correlations)
+    dev.off()
+    
+    # Merge GSEA pdfs
+    #qpdf::pdf_combine(c(enc2native(volcano.file), enc2native(heatmap.file), enc2native(correlations.file)), output= output_path, password="")
+  }
+  return(selectedGenes)}
+
+
+
+## FUNCTION to prepare data for run.GSEA function which requires:
+  # @DEresults: toptable from Differential Expression Analysis, preferentially
+              # coming from DEseq as it uses a column name "stat"
+  # @gene_symbols: vector of gene symbols corresponding to rows
+
+
+prepare.GSEA <- function(DEresults){
+  
+  if(!("stat" %in% colnames(DEresults))){print("DEresults table doesn't have a stat column")}
+  
+  # Select gene symbols and statistic, remove NA and if repeated compute mean
+  res2 <- as.data.frame(DEresults) %>% 
+    dplyr::select(symbol, stat) %>% 
+    na.omit() %>% 
+    distinct() %>% 
+    group_by(symbol) %>% 
+    summarize(stat=mean(stat))
+  print("Removing NA and adjust repeateds (mean)")
+  
+  # Create ranks
+  ranks <- tibble::deframe(res2)# converts 2xM dataframe to named vector
+  print("Create ranks")
+  
+  # Check ranks
+  barplot(sort(ranks, decreasing = T))
+  print("Plotted ranks")
+  
+  return(ranks)
+}
+
+
+
+
+## FUNCTION to perform GSEA analysis which requires:
+  # @title: custom name for the plot title and document name root
+  # @collection_path: path to the gene set collection (.gmt extension)
+  # @output_path
+
+
+run.GSEA <- function(ranks, title, loaded_collection ,collection_path, output_path, width= 15, height= 10, cutoff= 0.05, save=F){
+  
+  # If title missing set warning and assing collection as title
+  if(missing(title)){return("No title name has been provided. Collection has been set as title")}
+  
+  # Load library
+  library(fgsea)
+  print("Loaded library")
+  
+  # Load collection
+  if(missing(loaded_collection)){
+  loaded_collection <- gmtPathways(collection_path)
+  print("Loaded collection")}
+  
+  
+  # Perform GSEA 
+  fgseaRes <- fgsea(pathways = loaded_collection, stats=ranks)
+  print("GSEA run succesful")
+  
+  # Sort in descending order by NES (normalized enrichment score)
+  fgseaResTidy <- fgseaRes %>%
+    as_tibble() %>%
+    arrange(desc(NES))
+  print("tidy")
+
+  # Create and save plot
+  p <- ggplot(fgseaResTidy, aes(reorder(pathway, NES), NES)) +
+      geom_col(aes(fill = padj)) +
+      coord_flip() +
+      labs(x ="Pathway", y="Normalized Enrichment Score",
+           title = paste0(title, " pathways NES from GSEA"))+
+      theme_classic()
+  
+  print(p)
+  if(save==T){
+  ggsave(paste0(output_path,"/", title, "_GSEA_", analysis_name ,".pdf"), p, width = width, height = height, units="in", limitsize = FALSE)
+  
+  print(paste0("Your plot has been saved in ", paste0(output_path,"/", title, "_GSEA_", analysis_name ,".pdf")))}
+  return(fgseaResTidy)}
+
+#------------------------------------------------------------------------------
+##################### END OF FUNCTION DEFINITION ##############################
+
+# FUNCTION to create a nice plot with the GSEA enrichment of a pathway with the ranked genes
+plotPathwayRanks <- function(pathway, stats, gseaParam = 1, ticksSize = 0.2){
+    rnk <- rank(-stats)
+    ord <- order(rnk)
+    statsAdj <- stats[ord]
+    statsAdj <- sign(statsAdj) * (abs(statsAdj)^gseaParam)
+    statsAdj <- statsAdj/max(abs(statsAdj))
+    pathway <- unname(as.vector(na.omit(match(pathway, names(statsAdj)))))
+    pathway <- sort(pathway)
+    gseaRes <- calcGseaStat(statsAdj, selectedStats = pathway, 
+                            returnAllExtremes = TRUE)
+    bottoms <- gseaRes$bottoms
+    tops <- gseaRes$tops
+    n <- length(statsAdj)
+    xs <- as.vector(rbind(pathway - 1, pathway))
+    ys <- as.vector(rbind(bottoms, tops))
+    toPlot <- data.frame(x = c(0, xs, n + 1), y = c(0, ys, 0))
+    diff <- (max(tops) - min(bottoms))/8
+    x = y = NULL
+    g <- ggplot(toPlot, aes(x = x, y = y)) + 
+      geom_line(color = "#20961E", 
+                 size = 0.7) + 
+      geom_hline(yintercept = max(tops), 
+                 colour = "red", 
+                 linetype = "dashed") + 
+      geom_hline(yintercept = min(bottoms), 
+                 theme_bw()) + 
+      geom_segment(data = data.frame(x = pathway),
+                   mapping = aes(x = x, 
+                                 y = -diff/2, 
+                                 xend = x, 
+                                 yend = diff/2), 
+                                 size = ticksSize) + 
+      theme(panel.border = element_blank(),
+            panel.grid.minor = element_blank())+
+      theme_classic()+
+      labs(x = "Rank",
+           y = "Enrichment Score")
+    print(g)}
+
+```
+
+
+The analysis starts with a counts table provided by CNAG. This counts table (117.001x69) contains both human and mouse features in rows, including different gene products such as mRNA, lncRNA and other RNAs. 
+In the column there are the sample barcode of 68 samples and one additional column with feature information, including ensembl id, gene symbol and gene product type.
+
+The metadata is loaded from an excel file.
+
+```{r data_loading}
+## Load data
+# Load counts
+counts.original <- read.delim("C:/Users/paucl/Documents/TFM/dades/SERRAVIO_03_04_ProcessatCNAG/COUNTS_by_genes/COUNTS_genes_SERRAVIO_03_04", header=T)
+
+# Load phenodata
+phenodata.original <-as.data.frame( readxl::read_xlsx("C:/Users/paucl/Documents/TFM/dades/20220406SamplesInfo_VS.xlsx", sheet=1, col_names = T, trim_ws=T))
+
+# Change phenodata variables names
+colnames(phenodata.original)[colnames(phenodata.original)=="Response (R/S)"] <- "Response"
+colnames(phenodata.original)[colnames(phenodata.original)=="PDX name"] <- "PDX_name"
+```
+
+As we only have PDX model and patient ID information, I create a new column with original PDX_name (so I have in the same grup the olaparib resistant and sensible coming from the same patient).
+
+```{r modifications_on_data0} 
+# Create phenodata variable Original PDX
+phenodata.original$Original_PDX <- unlist(strsplit(phenodata.original$PDX_name, "OR"))
+
+# Set Original_PDX from PDX474.7 as PDX474.1 as it is the same tumour after adquiring resistance in patient
+phenodata.original$Original_PDX[grep("PDX474.7",phenodata.original$Original_PDX)] <- "PDX474.1"
+
+# Set variables as factors in phenodata and set a reference level
+cols <- c("Clinical subtype","Tumor origin","Patient ID","Alteration in HRR pathway", "Drug", "Response", "Original_PDX")
+phenodata.original[,cols] <- lapply(phenodata.original[cols], factor)
+
+# Change reference level
+phenodata.original$Drug <- relevel(phenodata.original$Drug, ref="control")
+phenodata.original$Response <- relevel(phenodata.original$Response, ref="Sensitive")
+```
+
+First column, containing gene metadata is splitted into ensembl_id, gene_symbol and gene_product type. Then mouse genes are removed and remaining genes are filtered by protein_coding genes. Afterwards a separate table with gene metadata is created from the information in counts table (which now contains only counts).
+
+Samples match between phenodata and count table is checked (and in the same order)
+
+```{r gene_metadata_creation}
+# Split gene information from first column in counts
+counts.original <- cbind(str_split_fixed(counts.original[,1], ",", n=3), counts.original)[,-4]
+
+# Add names to the new columns
+colnames(counts.original)[1:3] <- c("ensembl_id", "gene_symbol", "gene_product")
+
+# Remove mouse genes
+human_genes_index <- unlist(lapply(strsplit(counts.original$ensembl, "G"), "[[",1))=="ENS"
+counts.original <- counts.original[human_genes_index,]
+
+# Select protein_coding genes
+counts <- counts.original %>%
+  dplyr::filter(gene_product=="protein_coding")
+
+# Assign ensembl ID as rownames
+rownames(counts) <- counts[,1]
+
+# Create separate dataframe with gene metadata
+gene_metadata <- counts[,1:3]
+
+# Remove gene metadata from counts table
+counts <- counts[,-1:-3]
+
+# Arrange by model name, so both tables are in the same sample order
+phenodata.original <- arrange(phenodata.original, `Sample Barcode`)[1:68,]
+counts <- counts[,order(colnames(counts))]
+
+# Check that all samples in count table are in phenodata
+sum(colnames(counts) %in% phenodata.original[,2])
+
+# Check that samples are in the same order
+sum(colnames(counts) == phenodata.original[,2])/dim(phenodata.original)[1]
+```
+
+Data is subsetted by 
+
+```{r subsetting}
+# Create variable group
+phenodata <- phenodata.original%>%
+  mutate(Group=as.factor(paste(Response, Drug, sep="_")))
+```
+
+The sample names are changed to PDX model name.
+
+```{r new_column_names}
+# Change names of samples
+new.names <- c()
+for(sample in colnames(counts)){
+  new.names <- c(new.names,paste0(phenodata.original[phenodata.original[,2]==sample,4], "_",phenodata.original[phenodata.original[,2]==sample,"Drug"]))}
+
+# Assign the names
+colnames(counts) <- new.names
+rownames(phenodata) <- new.names
+
+# Save number of samples
+nsamples <- nrow(phenodata)
+```
+
+
+After cheking that there are no NA, only those genes with more than 10 counts in at least 3 samples are kept. (Reisländer et al 2019)
+
+```{r}
+# Check that there are no NA
+non_na <- complete.cases(counts)
+sum(!non_na)# should be 0
+
+
+# # Remove genes with less than 10 counts in more than 3 samples (Reisländer et al 2019)
+drop.genes <- rowSums(counts<10) > 3
+summary(drop.genes)
+
+# Subset 
+counts <- counts[non_na & !drop.genes,]
+```
+
+Library size is computed by summarizing the total number of counts per sample and library sizes are explored by a barplot and a boxplot.
+
+```{r}
+## Data exploration
+# Library size
+lib.size <- colSums(counts, na.rm=T) #Total number of counts of each sample
+
+# Check distributions by response
+boxplot(lib.size~as.factor(phenodata$"Group"),col=as.factor(phenodata$"Group"))
+
+par(mar=c(10,5,2,2)+.1)
+barplot(lib.size, las=2, col=as.factor(phenodata$"Group"))
+legend("topright", levels(phenodata$Group), fill=1:4)
+title("Library size per sample by response")
+```
+
+TMM normalization is computed and RLE is plotted.
+
+```{r}
+# Compute CPM 
+TMM <- normalizeCounts(counts, method="TMM")
+
+rownames(TMM) <- gene_metadata[rownames(TMM), "gene_symbol"]
+
+# Plot RLE comparison between TMM and counts
+par(mar=c(10,5,2,2)+.1)
+plotRLE(as.matrix(counts), 
+        outline=FALSE, ylim=c(-4, 4), 
+        col=as.factor(phenodata$Group), main = 'Counts', las=2)
+plotRLE(as.matrix(TMM), 
+        outline=FALSE, ylim=c(-4, 4), 
+        col=as.factor(phenodata$Group), main = 'TMM', las=2)
+```
+Unsupervised data exploration with the 500 genes with higher variance across samples:
+- Hierarchical Clustering
+- PCA
+- Pair-wise Pearson Correlation
+- Heatmap
+
+```{r exploration}
+# Compute the variance of each gene across samples
+V <- apply(TMM, 1, var)
+
+# Sort the results by variance in decreasing order and select the top 500 genes 
+selectedGenes <- names(V[order(V, decreasing = T)][1:500])
+
+clust.cor.ward <- hclust(dist(t(TMM[selectedGenes,])),method="average")
+plot(clust.cor.ward, main="hierarchical clustering", hang=-1,cex=0.8)
+
+# PCA #
+pcaResults <- prcomp(t(TMM))
+plot(pcaResults) # PC % of variability
+factoextra::fviz_pca_ind(pcaResults, geom.ind=c("point"), repel=T, habillage= phenodata$"Group", max.overlaps=5)
+factoextra::fviz_pca_ind(pcaResults, geom=c("point"), habillage= factor(phenodata$Original_PDX))
+
+# Pearson correlation pair-wise
+corr_coeff <- cor(TMM, method = "pearson")
+pheatmap::pheatmap(corr_coeff, main = "Pearson correlation")
+
+
+annotation_col <- as.data.frame(phenodata[,grepl("Group", colnames(phenodata))])
+colnames(annotation_col) <- "Group"
+rownames(annotation_col) <- rownames(phenodata)
+pheatmap::pheatmap(TMM[selectedGenes,], scale = "row", show_rownames = FALSE, annotation_col=annotation_col)
+```
+
+Transform some variables to factors.
+
+```{r}
+# Drop levels from phenodata.original
+phenodata$Original_PDX <- factor(phenodata$Original_PDX)
+```
+
+# Model
+
+```{r MODEL}
+# Create model design
+design <- as.formula(~Original_PDX+Group)
+
+# Create a DESeq dataset object from the count matrix, the phenodata  and the design
+dds0 <- DESeqDataSetFromMatrix(countData = as.matrix(counts), 
+                               colData = phenodata, 
+                               design = design)
+
+# DE analysis by DESeq Negative Binomial distribution
+dds <- DESeq(dds0)
+```
+
+# Contrasts
+```{r CONTRASTS}
+# Define contrasts
+drug_sensitive <- c("Group", 'Sensitive_olaparib', 'Sensitive_control')
+drug_resistant <- c("Group", 'Resistant_olaparib', 'Resistant_control')
+resistance_control <- c("Group", 'Resistant_control', 'Sensitive_control')
+resistance_olaparib <- c("Group", 'Sensitive_olaparib','Resistant_olaparib')
+
+# Set contrast vector and their names
+contrast.vector <- c("drug_sensitive", "drug_resistant", "resistance_control", "resistance_olaparib")
+contrast_names <- c("olaparib_vs_control_allsensitive", "olaparib_vs_control_allresistant", "sensitive_vs_resistant_allcontrol", "sensitive_vs_resistant_alltreated")
+names(contrast_names) <- contrast.vector
+
+for(contrast in contrast.vector){
+  # Extract DEA results and order them by pvalue
+  assign(paste0("DEresults.", contrast),       
+         as.data.frame(DESeq2::results(dds,
+                                       contrast = get(contrast)))%>%
+                                arrange(pvalue))
+  
+  # Add gene symbol to the results
+  assign(paste0("DEresults.", contrast),
+         cbind(get(paste0("DEresults.", contrast)), 
+         "symbol"= gene_metadata[rownames(get(paste0("DEresults.", contrast))), 
+                                 "gene_symbol"]))                          
+  # Volcano plot
+  print(EnhancedVolcano(get(paste0("DEresults.", contrast)),
+                  x= "log2FoldChange",
+                  y= "padj",
+                  lab="",
+                  pCutoff = 0.05,
+                  FCcutoff = 0.585,
+                  title =  contrast))
+  # readr::write_csv(as.data.frame(get(paste0("DEresults.",contrast))),
+  #                paste0("C:/Users/paucl/Documents/TFM/DEA/results/", 
+  #                       contrast, "/toptable_", 
+  #                       contrast_names[contrast],".csv"),
+  #                col_names=T)
+}
+```
+
+
+# Volcano plots
+
+```{r}
+# Set contrasts
+contrast.vector <- c("drug_sensitive", "drug_resistant", "resistance_control", "resistance_olaparib")
+contrast_names <- c("olaparib_vs_control_allsensitive", "olaparib_vs_control_allresistant", "sensitive_vs_resistant_allcontrol", "sensitive_vs_resistant_alltreated")
+names(contrast_names) <- contrast.vector
+
+# Load DEresults
+for(contrast in contrast.vector){
+  assign(paste0("DEresults.", contrast),
+         read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
+                          contrast, "/toptable_",
+                          contrast_names[contrast],".csv")))}
+
+# Load pathways
+hallmark <- gmtPathways("C:/Users/paucl/Documents/TFM/dades/collectionsets_msigdb/h.all.v7.5.1.symbols.gmt")
+
+# Set nice names
+nice_names <- read.csv("C:/Users/paucl/Documents/TFM/dades/collectionsets_msigdb/beautiful_names.csv")
+names(hallmark) <- as.vector(nice_names[,2])
+
+# Subset IFNa gene set
+alpha <- hallmark$`Interferon Alpha Response`
+
+
+for(contrast in contrast.vector){
+  # set DEresults table
+  DEresults <- get(paste0("DEresults.", contrast))
+  
+  # subset genes belonging to IFN alpha
+  color<- DEresults[DEresults$symbol%in%alpha,]
+  
+  # subset genes belonging to IFN alpha and being significative
+  size <- DEresults[DEresults$padj<0.05 & 
+                    abs(DEresults$log2FoldChange)>0.585 &
+                    DEresults$symbol%in%alpha,]
+  
+  # PLOT
+  p <- ggplot2::ggplot(DEresults,
+         aes(x = log2FoldChange,
+             y = -log10(padj)))+
+    theme(axis.title = element_text(face="bold"))+
+    # all points
+    geom_point(shape = 19, 
+               color = "#919394",
+               size= 0.5)+
+    # green small points
+    geom_point(data = color, 
+               aes(x = log2FoldChange,
+                   y = -log10(padj)),
+               color = "#20961E",
+               size= 0.5)+
+    labs(x = bquote(bold(.(Log[2] ~ FC))),
+         y = bquote(bold(.(-Log[10] ~ FDR))))+
+    theme_classic()+
+    theme(legend.position="top",
+          legend.justification='left')+
+    scale_fill_discrete(name="",labels=expression("IFN-"~alpha ~ "pathway"))+
+    geom_hline(yintercept = -log10(0.05), linetype = 2)+
+    geom_vline(xintercept = 0.585, linetype = 2)+
+    geom_vline(xintercept = -0.585, linetype = 2)+
+    theme(axis.line = element_line(size=0.7),
+          axis.ticks = element_line(size=0.7))
+    if(dim(size)[1]!=0){
+      p <- p+
+      # green big points
+      geom_point(data = size,
+                  aes(x = log2FoldChange,
+                      y = -log10(padj), fill=""),
+                 size = 1.5,
+                 color = "#20961E")+
+      # add text
+      geom_label_repel(data = size,
+                  aes(x = log2FoldChange,
+                      y = -log10(padj),
+                      label = symbol),
+                 size = 3,
+                 min.segment.length = 0.3)}
+  print(p)
+  ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/results/", contrast,
+              "/", "VOLCANO_", contrast_names[contrast] ,".png"),
+       units="in", limitsize = FALSE, width=4, height=5)
+  }
+
+
+# Number of significant genes
+for(contrast in contrast.vector){
+  DEresults <- get(paste0("DEresults.", contrast))
+  selectedGenes <- DEresults[DEresults$padj<0.05 & abs(DEresults$log2FoldChange)>0.585,"symbol"]
+  print(paste0(contrast, " DEGS ", length(selectedGenes[!is.na(selectedGenes)])))
+}
+
+# Intersection between contrasts
+length(intersect(subset(DEresults.drug_sensitive, c(padj<0.05 & abs(log2FoldChange)>0.585))$symbol, subset(DEresults.resistance_olaparib, c(padj<0.05 & abs(log2FoldChange)>0.585))$symbol))
+
+
+# Heatmap
+library(ComplexHeatmap)
+
+column_ha <- HeatmapAnnotation(Group = phenodata$Group)
+
+input <- t(scale(t(na.omit(as.data.frame(TMM)[selectedGenes,]))))
+Heatmap(input, top_annotation=column_ha)
+
+```
+
+#######################################################################################
+---------------------------------------------------------------------------------------
+#######################################################################################
+
+
+
+
+```{r}
+# Proves amb POL2RJ
+TMM <- as.data.frame(TMM)
+
+# Create a dataframe with POL2RJ TMM and phenodata information
+plotthis <- cbind.data.frame("POL2RJ"=t(TMM[grep("POL2RJ", rownames(TMM)),]), 
+                             phenodata[,c("Group", "Drug", "Response", "PDX_name", "Original_PDX")])
+
+# Look for differences in POL2RJ expression
+sensitiveALL <- subset(plotthis, Response=="Sensitive")$POL2RJ
+resistantALL <- subset(plotthis, Response=="Resistant")$POL2RJ
+
+var.test(sensitiveALL, resistantALL)
+
+length(sensitiveALL) <- length(resistantALL)
+
+t.test(sensitiveALL, 
+       resistantALL,
+       alternative = "two.sided",
+       var.equal = T)
+
+        
+# Subset samples with paired adquired resistances
+plotthis <- plotthis[plotthis$Original_PDX%in%levels(plotthis$Original_PDX)[table(plotthis$Original_PDX)==4],]
+
+# Order by PDX_name and Drug
+plotthis <- plotthis[order(plotthis$PDX_name, plotthis$Drug),]
+
+ggplot(plotthis, aes(x=Response, y=POL2RJ, fill=Response))+
+  geom_boxplot()+
+  geom_point(aes(group= PDX_name))+
+  theme_classic()
+t.test(plotthis[plotthis$Response=="Sensitive", "POL2RJ"], 
+       plotthis[plotthis$Response=="Resistant", "POL2RJ"], 
+       paired = T,
+       alternative = "greater",
+       var.equal = T)
+
+# # Ratio POL2RJ expression in olaparib/control
+# ratio <- tapply(plotthis$POL2RJ, plotthis$PDX_name, \(x){x[1]/x[2]})
+# 
+# # Create a dataframe with ratio, original PDX and response
+# ratio.df <- cbind.data.frame("Ratio" = ratio, 
+#                              "Original_PDX" = factor(plotthis[match(names(ratio), plotthis$PDX_name), "Original_PDX"]),
+#                              "Response" = plotthis[match(names(ratio), plotthis$PDX_name), "Response"])
+# 
+# # Order
+# ratio.df <- ratio.df[order(ratio.df$Original_PDX, ratio.df$Response),]
+# 
+# # Compute ratio sensitive/resistant
+# ratrat <- tapply(ratio.df$Ratio, factor(ratio.df$Original_PDX),  \(x){x[1]/x[2]})
+# 
+# ggplot(ratio.df)+
+#   geom_boxplot(aes(x=Response, y=Ratio))
+# 
+# # Treatment effect on POL2RJ expression is higher in sensitive
+# t.test(ratio.df[ratio.df$Response=="Sensitive","Ratio"], 
+#        ratio.df[ratio.df$Response=="Resistant","Ratio"], 
+#        paired = T,
+#        alternative = "less")
+# 
+# 
+# 
+# set.seed(123)
+# sample <- data.frame(name = c(rep("Amy",4),rep("Bob",4),rep("Jack",4)),
+#                      status = rep(c("Before","After"),6),
+#                      test = rep(c("English","English","Math","Math"),3),
+#                      score = sample(60:100,12,replace=T))
+# 
+# ggplot(sample, aes(x = status, y = score)) + 
+# geom_boxplot(aes(fill = status), alpha = .2) +
+# geom_line(aes(group = name)) + 
+# geom_point(size = 2)
+# 
+# ggplot(plotthis, aes(x = Drug, y = POL2RJ)) + 
+# geom_violin(aes(fill = Drug), alpha = .2) +
+# geom_line(aes(group = PDX_name)) + 
+# geom_point(size = 2)
+```
+

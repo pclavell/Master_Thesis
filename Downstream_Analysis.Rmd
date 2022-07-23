@@ -1,0 +1,323 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-06-29'
+---
+
+
+
+```{r}
+library(tidyverse)
+library(ggrepel)
+library(ggpubr)
+library(ggpmisc)
+
+# load top tables
+sensitives <- read.csv("C:/Users/paucl/Documents/TFM/DEA/results/drug_sensitive/toptable_olaparib_vs_control_allsensitive.csv")
+resistants <- read.csv("C:/Users/paucl/Documents/TFM/DEA/results/drug_resistant/toptable_olaparib_vs_control_allresistant.csv") 
+
+# load hallmark
+hallmark <- fgsea::gmtPathways("C:/Users/paucl/Documents/TFM/dades/collectionsets_msigdb/h.all.v7.5.1.symbols.gmt")
+
+# load nice names for hallmark
+nice_names <- read.csv("C:/Users/paucl/Documents/TFM/dades/collectionsets_msigdb/beautiful_names.csv")
+names(hallmark) <- as.vector(nice_names[,2])
+
+# join tables
+all <- left_join(sensitives, resistants, by="symbol", suffix=c(".s",".r"))
+```
+
+
+```{r}
+# compute mean of logFC by geneset
+inset <- lapply(hallmark , 
+            \(x) lapply(subset(all ,  all$symbol %in% x)[grep("log2FoldChange",
+                                                              colnames(all))],
+            mean))
+
+meanlogFCin <- do.call(rbind.data.frame, inset)
+
+# compute mean of logFC by geneset for genes not in the set
+outset <- lapply(hallmark , 
+            \(x) lapply(subset(all ,  !(all$symbol %in% x))[grep("log2FoldChange",
+                                                              colnames(all))],
+            mean))
+
+meanlogFCout <- do.call(rbind.data.frame, outset)
+
+# join inset and outset
+meanlogFC <- left_join(add_rownames(meanlogFCin), add_rownames(meanlogFCout), suffix=c(".in", ".out"), by=c("rowname"))
+
+meanlogFC <- as.data.frame(meanlogFC)
+
+# add number of genes in the set
+meanlogFC$`Genes in set` <- unlist(lapply(hallmark, length))
+
+
+# compute difference between in and outs
+meanlogFC <- meanlogFC %>%
+  mutate(sensitive= log2FoldChange.s.in-log2FoldChange.s.out)%>%
+  mutate(resistant= log2FoldChange.r.in-log2FoldChange.r.out)
+
+
+```
+
+Això era per comparar els Wald stat entre dins i fora del gene set per resistents i sensibles per separat
+```{r}
+# # take wald stat for all genes inside and outside the gene sets
+# zin <- lapply(hallmark ,
+#             \(x) subset(all ,  all$symbol %in% x)[grep("stat",
+#                                                           colnames(all))])
+# zout <- lapply(hallmark ,
+#             \(x) subset(all ,  !(all$symbol %in% x))[grep("stat",
+#                                                           colnames(all))])
+# 
+# 
+# 
+# wilcox.s <- c()
+# for(geneset in 1:50){
+#      ins <- unlist(zin[[geneset]][1])
+#      outs <- unlist(zout[[geneset]][1])
+#      length(ins) <- length(outs)
+#      total <- cbind(ins, outs)
+#      wilcox.s <- c(wilcox.s, wilcox.test(ins,outs, data=total)$p.value)
+# }
+# 
+# wilcox.r <- c()
+# for(geneset in 1:50){
+#      ins <- unlist(zin[[geneset]][2])
+#      outs <- unlist(zout[[geneset]][2])
+#      length(ins) <- length(outs)
+#      total <- cbind(ins, outs)
+#      wilcox.r <- c(wilcox.r, wilcox.test(ins,outs, data=total)$p.value)
+#  }
+# 
+# meanlogFC$wilcox.s <- wilcox.s
+# meanlogFC$wilcox.r <- wilcox.r
+# 
+# meanlogFC$wilcox.signif <- ifelse(meanlogFC$wilcox.s < 0.05, ifelse(meanlogFC$wilcox.r<0.05, "Sensitive & Resistant", "Sensitive"), ifelse(wilcox.r<0.05, "Resistant", "None"))
+
+```
+
+Comparison of olaparib-treatment effect on sensitive and resistant PDX of average log2 fold change of gene set member minus non-member genes for every gene set in MsigDb Hallmark collection.
+
+Significance has been obtained from a two-sided Wilcoxon Rank-Sum test on the differences between log2 fold changes from gene set member genes from resistant and sensitive contrasts, after rejecting the null hypothesis in Shapiro-Wilk normality test.
+
+The lineal model built with all data points has a slope = 0.45 with an adjusted R-squared of 0.87.
+
+All significant gene sets suffer a greater effect in sensitive PDX as all are true `(abs(meanlogFC$log2FoldChange.s.in)-abs(meanlogFC$log2FoldChange.r.in))[meanlogFC$wilcox.p<0.05]`
+
+Green - there are differences between logFC between sensitives and resistants
+QI over line -> higher upregulation in resistant
+QI under line -> higher upregulation in sensitive
+
+QIII over line -> higher downregulation in sensitive
+QIII under line -> higher downregulation in resistant
+
+QIV -> sensitive upregulation but resistant downregulation, which one has the biggest effect depend on the value (a line with -1 slope ccould make a separation)
+
+```{r}
+insetlogs <- lapply(hallmark , 
+            \(x) subset(all ,  all$symbol %in% x)[grep("log2FoldChange",
+                                                              colnames(all))])
+
+logFCin <- do.call(rbind.data.frame, insetlogs)
+logFCin$set <- gsub("\\..*", "",rownames(logFCin))
+
+tapply(logFCin$log2FoldChange.s-logFCin$log2FoldChange.r, factor(logFCin$set), shapiro.test)
+
+wilcox.res.log <- tapply(logFCin$log2FoldChange.s-logFCin$log2FoldChange.r, factor(logFCin$set), wilcox.test, alternative="two.sided", mu=0)
+
+wilcox.p <- unlist(lapply(wilcox.res.log, "[[", 3))
+meanlogFC$wilcox.p <- wilcox.p[meanlogFC$rowname]
+
+meanlogFC$wilcox.p.signif <- ifelse(meanlogFC$wilcox.p < 0.05,  "< 0.05", "ns")
+
+
+boxplot(logFCin$log2FoldChange.s- logFCin$log2FoldChange.r~ factor(logFCin$set))
+abline(h=0)
+
+meanlogFC[!((meanlogFC$log2FoldChange.s.in>0 & meanlogFC$log2FoldChange.r.in>0)|(meanlogFC$log2FoldChange.s.in<0 & meanlogFC$log2FoldChange.r.in<0)), "rowname"]
+
+#write.csv(meanlogFC, "C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalLogFCgeneset.csv")
+```
+
+```{r}
+# Load GSEA results
+contrast.list <- c("drug_sensitive", "drug_resistant", "resistance_control", "resistance_olaparib")
+contrast_names <- c("olaparib_vs_control_allsensitive", "olaparib_vs_control_allresistant", "sensitive_vs_resistant_allcontrol", "sensitive_vs_resistant_alltreated")
+names(contrast_names) <- contrast.list
+
+for(contrast in contrast.list){
+  assign(paste0("GSEA.", contrast),
+         read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
+                          contrast, "/GSEAres_",
+                          contrast_names[contrast],".csv")))}
+meanlogFC <- meanlogFC[order(meanlogFC$rowname),]
+meanlogFC$GSEA <- c(ifelse(GSEA.drug_sensitive[order(GSEA.drug_sensitive$pathway), "padj"] < 0.05, 
+                         ifelse(GSEA.drug_resistant[order(GSEA.drug_resistant$pathway),
+                                                    "padj"] < 0.05, 
+                                "Sensitive & Resistant",
+                                "Sensitive"), 
+                         ifelse(GSEA.drug_resistant[order(GSEA.drug_resistant$pathway),
+                                                    "padj"] < 0.05, 
+                                "Resistant", 
+                                "None")))
+
+meanlogFC$plotnames <- ifelse(meanlogFC$wilcox.p.signif == "< 0.05", meanlogFC$rowname, "")
+
+```
+
+
+```{r}
+
+# 
+# 
+# 
+# 
+# ggplot(meanlogFC, 
+#        aes(x = sensitive, 
+#            y = resistant,
+#            label = plotnames))+
+#   stat_smooth(method = "lm", se=F, color="black", linetype="dashed")+
+#   geom_point(aes(size =`Genes in set`,
+#                  #color = wilcox.p.signif,
+#                  color = GSEA,
+#                  shape = wilcox.p.signif),
+#              alpha=0.7)+
+#   # add text
+#   geom_text_repel(box.padding = 0.5, 
+#                   max.overlaps = Inf,
+#                   size=3)+
+#   # scale_color_manual(values= c("< 0.05" = "Red",
+#   #                              "ns" = "Grey"))+
+#   scale_color_manual(values = c("Sensitive & Resistant" = "#8500AC",
+#                               "Sensitive" = "#1984c5",
+#                               "Resistant" = "#c23728",
+#                               "None" = "Grey"))+
+#   scale_shape_manual(values= c("< 0.05" = 17,
+#                                "ns" = 16))+
+#   theme_classic()+
+#   geom_hline(yintercept=0, color="darkgrey", linetype="dotted") +
+#   geom_vline(xintercept=0, color="darkgrey", linetype="dotted") +
+#   geom_abline(slope=1, size=1, color="grey", linetype="dashed", inherit.aes=F)+
+#   scale_size_area()+
+#   labs(x = bquote(bold(.(log[2] ~ FC ~ Sensitive ~(olaparib~ vs ~control)))), 
+#        y = bquote(bold(.(log[2] ~ FC ~ Resistant ~(olaparib~ vs ~control)))),
+#            title = "")+
+#   theme(axis.line = element_line(size=0.7),
+#         axis.ticks = element_line(size=0.7),
+#         axis.text = element_text(face="bold"),
+#         axis.title = element_text(face="bold"))+
+#   stat_regline_equation(aes(label= after_stat(eq.label)),
+#                         data = meanlogFC,
+#                         formula=lm(meanlogFC$resistant ~ meanlogFC$sensitive), 
+#                         label.x.= 0.8 , 
+#                         label.y=0.1)+
+#   stat_poly_eq(aes(label= after_stat(adj.rr.label)), label.x= 0.9, label.y = 0.55)+
+#   guides(colour = guide_legend(override.aes = list(size=5),
+#                                title = "GSEA significant"),
+#          shape = guide_legend(override.aes = list(size=5),
+#                               title= "Differential \n treatment effect \n by response"))
+# ggsave("C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalGSEA.pdf", units="in", limitsize = FALSE, width=10, height=6)
+
+
+```
+```{r}
+# Versió de la violeta
+
+ggplot(meanlogFC, 
+       aes(x = sensitive, 
+           y = resistant,
+           label = plotnames))+
+  geom_hline(yintercept=0, color="darkgrey", linetype="dashed") +
+  geom_vline(xintercept=0, color="darkgrey", linetype="dashed") +
+  geom_abline(slope=1, size=0.3, color="black", linetype="dotted", inherit.aes=F)+
+  stat_smooth(method = "lm", se=F, color="black", linetype="twodash", size= 1.3)+
+  geom_point(aes(size =`Genes in set`,
+                 color = GSEA,
+                 shape = wilcox.p.signif),
+             alpha=0.7)+
+  # add text
+  geom_text_repel(box.padding = 0.5, 
+                  max.overlaps = Inf,
+                  size=3)+
+  scale_color_manual(values = c("Sensitive & Resistant" = "#4b9600",
+                              "Sensitive" = "#1984c5",
+                              "Resistant" = "#C309C7",
+                              "None" = "darkgrey"),
+                     breaks = c("Sensitive", "Resistant", "Sensitive & Resistant", "None"))+
+  scale_shape_manual(values= c("< 0.05" = 17,
+                               "ns" = 16))+
+  theme_classic()+
+  scale_size_area()+
+  labs(x = bquote(bold(.(log[2] ~ FC ~ Sensitive ~(olaparib~ vs ~control)))), 
+       y = bquote(bold(.(log[2] ~ FC ~ Resistant ~(olaparib~ vs ~control)))),
+           title = "")+
+  theme(axis.line = element_line(size=0.7),
+        axis.ticks = element_line(size=0.7),
+        axis.text = element_text(face="bold"),
+        axis.title = element_text(face="bold"),
+        legend.box = "vertical")+
+  stat_regline_equation(aes(label= after_stat(eq.label)),
+                        data = meanlogFC,
+                        formula=lm(meanlogFC$resistant ~ meanlogFC$sensitive), 
+                        label.x.= 0.8 , 
+                        label.y=0.1)+
+  stat_poly_eq(aes(label= after_stat(adj.rr.label)), label.x= 0.9, label.y = 0.55)+
+  guides(colour = guide_legend(override.aes = list(size=5),
+                               title = "GSEA FDR<0.05"),
+         shape = guide_legend(override.aes = list(size=5),
+                              title= "Differential \n treatment effect \n by response"))+
+  coord_fixed(ratio=1)
+ggsave("C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalGSEAnew.png", units="in", limitsize = FALSE, width=10, height=6)
+```
+
+
+
+
+
+```{r}
+# All genes bicontrast plot
+
+all$signif <- ifelse(all$padj.s < 0.05, ifelse(all$padj.r<0.05, "Sensitive & Resistant", "Sensitive"), ifelse(all$padj.r<0.05, "Resistant", "None"))
+
+suball <- base::subset(all, all$padj.s<0.05 | all$padj.r<0.05)
+
+ggplot(all)+
+  geom_point(aes(x = log2FoldChange.s, 
+                 y = log2FoldChange.r, 
+                 color = signif),
+             alpha=0.4)+
+  scale_color_manual(values = c("Sensitive & Resistant" = "Red",
+                                "Sensitive" = "Blue",
+                                "Resistant" = "Green",
+                                "None" = "darkgrey"))+
+  theme_classic()+
+  geom_hline(yintercept=0, color="darkgrey", linetype="dotted") +
+  geom_vline(xintercept=0, color="darkgrey", linetype="dotted") +
+  geom_abline(slope=1, size=1, color="grey", linetype="dashed", inherit.aes=F)+
+  scale_size_area()+
+  labs(x = bquote(bold(.(log[2] ~ FC ~ Sensitive ~(olaparib~ vs ~control)))), 
+       y = bquote(bold(.(log[2] ~ FC ~ Resistant ~(olaparib~ vs ~control)))),
+           title = "")+
+  # add text
+  geom_text_repel(data= suball,
+                  aes(x = log2FoldChange.s,
+                      y = log2FoldChange.r,
+                      label = symbol),
+                   size = 3,
+                   min.segment.length = 0.3)+
+  guides(color= guide_legend("FDR<0.05"))+
+  theme(axis.line = element_line(size=0.7),
+        axis.ticks = element_line(size=0.7),
+        axis.text = element_text(face="bold"),
+        axis.title = element_text(face="bold"))
+#ggsave("C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalLogFC.png", units="in", limitsize = FALSE, width=10, height=6)
+```
+
+
+
+
+
+

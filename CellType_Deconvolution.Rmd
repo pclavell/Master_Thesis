@@ -1,0 +1,503 @@
+---
+title: "singscore"
+output: html_document
+date: '2022-06-23'
+---
+
+```{r data_loading}
+## Load data
+
+library(tidyverse)
+
+# Load counts
+counts.original <- read.delim("C:/Users/paucl/Documents/TFM/dades/SERRAVIO_03_04_ProcessatCNAG/COUNTS_by_genes/COUNTS_genes_SERRAVIO_03_04", header=T)
+
+# Load phenodata
+phenodata.original <-as.data.frame( readxl::read_xlsx("C:/Users/paucl/Documents/TFM/dades/20220406SamplesInfo_VS.xlsx", sheet=1, col_names = T, trim_ws=T))
+
+# Change phenodata variables names
+colnames(phenodata.original)[colnames(phenodata.original)=="Response (R/S)"] <- "Response"
+colnames(phenodata.original)[colnames(phenodata.original)=="PDX name"] <- "PDX_name"
+```
+
+
+
+```{r modifications_on_data0} 
+# Create phenodata variable Original PDX
+phenodata.original$Original_PDX <- unlist(strsplit(phenodata.original$PDX_name, "OR"))
+
+# Set Original_PDX from PDX474.7 as PDX474.1 as it is the same tumour after adquiring resistance in patient
+phenodata.original$Original_PDX[grep("PDX474.7",phenodata.original$Original_PDX)] <- "PDX474.1"
+
+# Set variables as factors in phenodata and set a reference level
+cols <- c("Clinical subtype","Tumor origin","Patient ID","Alteration in HRR pathway", "Drug", "Response", "Original_PDX")
+phenodata.original[,cols] <- lapply(phenodata.original[cols], factor)
+
+# Change reference level
+phenodata.original$Drug <- relevel(phenodata.original$Drug, ref="control")
+phenodata.original$Response <- relevel(phenodata.original$Response, ref="Sensitive")
+```
+
+First column, containing gene metadata is splitted into ensembl_id, gene_symbol and gene_product type. Then mouse genes are removed and remaining genes are filtered by protein_coding genes. Afterwards a separate table with gene metadata is created from the information in counts table (which now contains only counts).
+
+Samples match between phenodata and count table is checked (and in the same order)
+
+```{r gene_metadata_creation}
+# Split gene information from first column in counts
+counts.original <- cbind(str_split_fixed(counts.original[,1], ",", n=3), counts.original)[,-4]
+
+# Add names to the new columns
+colnames(counts.original)[1:3] <- c("ensembl_id_version", "gene_symbol", "gene_product")
+
+# Remove human genes
+human_genes_index <- unlist(lapply(strsplit(counts.original$ensembl, "M"), "[[",1))=="ENS"
+counts.original <- counts.original[human_genes_index,]
+
+# Select protein_coding genes
+counts <- counts.original %>%
+  dplyr::filter(gene_product=="protein_coding")
+
+# Assign ensembl ID as rownames
+rownames(counts) <- counts[,1]
+
+# Create separate dataframe with gene metadata
+gene_metadata <- counts[,1:3]
+
+# Remove gene metadata from counts table
+counts <- counts[,-1:-3]
+
+# Arrange by model name, so both tables are in the same sample order
+phenodata.original <- arrange(phenodata.original, `Sample Barcode`)[1:68,]
+counts <- counts[,order(colnames(counts))]
+
+# Check that all samples in count table are in phenodata
+sum(colnames(counts) %in% phenodata.original[,2])
+
+# Check that samples are in the same order
+sum(colnames(counts) == phenodata.original[,2])/dim(phenodata.original)[1]
+```
+
+
+
+Data is subsetted by 
+
+```{r subsetting}
+phenodata <- phenodata.original
+
+# Select only this mouse strain (the other only has macrophages)
+counts <- counts[,phenodata$`Mouse strain`=="Hsd:Athymic Nude-Foxn1nu"]
+
+phenodata <- phenodata%>%
+  mutate(Group=as.factor(paste(Response, Drug, sep="_")))%>%
+  filter(`Mouse strain`=="Hsd:Athymic Nude-Foxn1nu")
+```
+The sample names are changed to PDX model name.
+
+```{r new_column_names}
+# Change names of samples
+new.names <- c()
+for(sample in colnames(counts)){
+  new.names <- c(new.names,paste0(phenodata.original[phenodata.original[,2]==sample,4], "_",phenodata.original[phenodata.original[,2]==sample,"Drug"]))}
+
+# Assign the names
+colnames(counts) <- new.names
+rownames(phenodata) <- new.names
+
+# Save number of samples
+nsamples <- nrow(phenodata)
+```
+
+
+```{r}
+# Check that there are no NA
+non_na <- complete.cases(counts)
+sum(!non_na)# should be 0
+
+# Subset 
+counts <- counts[non_na,]
+```
+
+Library size is computed by summarizing the total number of counts per sample and library sizes are explored by a barplot and a boxplot.
+```{r}
+# Create a column with ensembl_id
+gene_metadata <- gene_metadata %>%
+  filter(ensembl_id_version %in% rownames(counts))%>%
+  mutate(ensembl_id= gsub("\\..*$", "",ensembl_id_version))
+```
+
+
+```{r}
+library(biomaRt)
+# Find human ortholog ENSEMBLID 
+mart1 = useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+mart2 = useEnsembl("ensembl", dataset="mmusculus_gene_ensembl", host = "https://dec2021.archive.ensembl.org") 
+
+# Trasnformation human / mouse
+human_ensembl <- getLDS(attributes=c("ensembl_gene_id"),
+                        filters="ensembl_gene_id", 
+                        values=gene_metadata$ensembl_id, 
+                        mart=mart2,
+                        attributesL=c("ensembl_gene_id"),
+                        martL=mart1)
+
+# remove duplicated mouse genes
+human_ensembl <-human_ensembl%>%
+  distinct(Gene.stable.ID, .keep_all=T)
+
+# add human ensembl to gene_metadata
+gene_metadata <- gene_metadata%>%
+  right_join(human_ensembl, by=c("ensembl_id"="Gene.stable.ID"))
+
+
+# remove counts with unknown human gene
+counts <- counts%>%
+  filter(rownames(counts)%in%gene_metadata$ensembl_id_version)
+
+#mirar llargada i mirar si conservem els gens de la signatura.
+```
+
+
+
+```{r}
+# Download gene start and end positions to compute gene length 
+mouse <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+res <- getBM(attributes = c("ensembl_gene_id",'transcript_start','transcript_end'), 
+             mart = mouse, 
+             filter= "ensembl_gene_id", 
+             values = gene_metadata$ensembl_id)
+# COmpute gene_length
+genelengths <- res%>%
+  mutate(gene_length=transcript_end-transcript_start)%>%
+  group_by(ensembl_gene_id)%>%
+  summarise_at(vars(gene_length) , list(name = mean))
+  
+
+gene_metadata <- gene_metadata%>%
+  right_join(genelengths, by=c("ensembl_id"="ensembl_gene_id"))
+```
+
+```{r}
+## Data exploration
+# Library size
+lib.size <- colSums(counts, na.rm=T) #Total number of counts of each sample
+
+# Check distributions by response
+boxplot(lib.size~as.factor(phenodata$"Group"),col=as.factor(phenodata$"Group"))
+
+par(mar=c(10,5,2,2)+.1)
+barplot(lib.size, las=2, col=as.factor(phenodata$"Group"))
+legend("topleft", levels(phenodata$Group), fill=1:4)
+title("Library size per sample by response")
+
+# Remove the sample with very big library
+counts <- counts[lib.size!=max(lib.size)]
+phenodata <- phenodata[lib.size!=max(lib.size),]
+```
+
+
+
+```{r}
+TMM <- tweeDEseq::normalizeCounts(counts, method="TMM")
+rownames(TMM) <- toupper(gene_metadata$gene_symbol)
+TMM <- as.data.frame(TMM)
+
+# Compute TPM
+rpk <- apply(counts, 2, 
+             function(x) x/(gene_metadata$name/10^3)) #nameis the length of the gene
+# Normalize gene-normalized values by the sample size using rpk values
+NormByTPM <- apply(rpk, 2, 
+                   function(x) x / sum(as.numeric(x), na.rm=TRUE) * 10^6)
+colSums(NormByTPM, na.rm=TRUE)#equals 1e+06
+
+# Set symbol as rowname
+rownames(NormByTPM) <- toupper(gene_metadata$gene_symbol)
+NormByTPM <- as.data.frame(NormByTPM)
+```
+
+
+rank-based single sample scoring method, singscore
+```{r}
+library(singscore)
+library(GSEABase)
+library(SummarizedExperiment)
+
+# rank genes
+rankData <- rankGenes(as.matrix(TMM))
+# scoring
+nk <- readxl::read_xlsx("C:/Users/paucl/Documents/TFM/cell type deconvolution/NKsignature.xlsx")%>%
+  filter(`Final list`==TRUE)
+NKsig <- as.vector(unlist(nk[1]))
+
+# check for genes in signature
+sum(rownames(NormByTPM)%in%NKsig)
+
+# perform score
+scoredf <- simpleScore(rankData, upSet= NKsig)
+
+# plot ranks
+plotRankDensity(rankData[,2,drop = FALSE], upSet =NKsig , isInteractive = FALSE)
+
+scoredf$group <- phenodata$Group
+
+# Barplot
+ggplot(scoredf)+
+  geom_bar(aes(x=rownames(scoredf),y=TotalScore, fill=phenodata$Group), stat="identity")
+
+# Boxplot by groups
+ggplot(scoredf)+
+  geom_boxplot(aes(x=group,y=TotalScore, fill=group))
+
+
+barplot(scoredf$TotalScore)
+
+
+aov <- aov(as.formula(scoredf$TotalScore~scoredf$group))
+res.anova <- anova(aov)
+TukeyHSD(aov)
+
+
+
+
+# Permutation test
+ncores <- 1
+
+permuteResult <-
+  generateNull(
+    upSet = NKsig,
+    rankData = rankData,
+    subSamples = 1:63,
+    centerScore = TRUE,
+    knownDirection = TRUE,
+    B = 1000,
+    ncores = ncores,
+    seed = 1,
+    useBPPARAM = NULL
+  )
+
+# get pvals
+pvals <- getPvals(permuteResult, scoredf, subSamples =1:63)
+
+
+plotNull(permuteResult, scoredf, pvals, sampleNames = names(pvals)[1])
+
+pvals <- as.data.frame(pvals)
+pvals$group <- phenodata$Group
+
+ggplot(as.data.frame(pvals))+
+  geom_density(aes(x=pvals))
+  
+ggplot(as.data.frame(pvals))+
+  geom_boxplot(aes(x=group, y=pvals, fill=group))
+```
+```{r}
+library(ComplexHeatmap)
+nkgep <- NormByTPM%>%
+  filter(rownames(NormByTPM)%in%NKsig)
+
+pheatmap::pheatmap(as.matrix(nkgep), scale="row")
+
+
+
+column_ha = HeatmapAnnotation(foo1 = phenodata$Group)
+nkgepscaled <-pheatmap:::scale_rows(nkgep)
+
+#with clustering
+Heatmap(nkgepscaled, top_annotation=column_ha)
+
+#without clustering
+Heatmap(nkgepscaled, top_annotation=column_ha, column_order= rownames(phenodata%>%dplyr::arrange(by_group=Group)))
+```
+
+
+```{r packages_preparation}
+setwd("C:/Users/paucl/Documents/TFM/analysis")
+
+#devtools::install_github("GfellerLab/EPIC", build_vignettes=TRUE)
+
+packages <- c("dplyr", "stringr", "ggplot2", "biomaRt", "pheatmap", "devtools", "EPIC", "quantiseqr")
+lapply(packages, library, character.only = TRUE)
+```
+
+```{r}
+# Run EPIC cell type deconvolution analysis
+out <- EPIC(bulk = as.matrix(NormByTPM))
+
+# Add group factor and pivot longer to input in ggplot
+cellfractions <- as.data.frame(out$cellFractions)
+
+cellfractions$sample <- rownames(out$cellFractions)
+cellfractions$group <- phenodata$Group
+
+cellFrac <- tidyr::pivot_longer(as.data.frame(cellfractions), 1:8, "cell")
+
+# General boxplot by cell type
+ggplot(cellFrac)+
+  geom_col(aes(x=sample, y=value, fill=cell))
+
+# Boxplot dodged by group
+ggplot(cellFrac)+
+  geom_boxplot(aes(x=group, y=value, position="dodge", fill=cell), trim=TRUE)+
+  theme_classic()
+
+ggplot(cellFrac%>%
+         filter(cell=="Endothelial"))+
+  geom_boxplot(aes(x=group, y=value, position="dodge", fill=cell), trim=TRUE)+
+  theme_classic()
+
+# Boxplot of immune cell types by group
+immunecell <- cellFrac%>%
+  filter(!(cell%in%c("CAFs", "Endothelial", "otherCells")))
+immunecell$cell <- factor(immunecell$cell)
+ggplot(immunecell,aes(x=group, y=value, fill=cell))+
+  geom_boxplot()  +
+  theme_classic()
+
+# Boxplot of NKcells
+ggplot(NK,aes(x=group, y=value, fill=cell))+
+  geom_boxplot()  +
+  theme_classic()
+
+#provar cibersort amb absolute setting
+
+range(cellFrac$value)
+
+out$fit.gof
+
+aov <- aov(as.formula(cellfractions$Endothelial~scoredf$group))
+res.anova <- anova(aov)
+TukeyHSD(aov)
+
+```
+```{r}
+# devtools::install_github("IOBR/IOBR")
+library(IOBR)
+
+# Run cibersort
+cibersort<-CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN=TRUE, absolute=FALSE)
+
+# Add columns with conditions info
+cibersort <- as.data.frame(cibersort)
+cibersort$group <-phenodata$Group
+cibersort$sample <- rownames(cibersort)
+cibersort$pdx <- phenodata$Original_PDX
+cibersort$response <- phenodata$Response
+cibersort$drug <- phenodata$Drug
+
+
+# Pivot data
+ciberlong <- tidyr::pivot_longer(as.data.frame(cibersort), 1:25, "cell" )
+ciberlong$cell <- as.factor(ciberlong$cell)
+
+ciberlong <- ciberlong%>%
+  filter(!(cell%in%c("P-value","Correlation","RMSE")))
+
+# Plot everything
+ggplot(ciberlong)+
+  geom_col(aes(x=group, y=value,fill=cell), position="stack")
+
+# Plot only NK activated
+ggplot(ciberlong%>%
+         filter(cell=="NK cells activated"))+
+  geom_boxplot(aes(x=group, y=value,fill=cell))
+
+
+
+ggplot(ciberlong%>%
+         filter(cell%in%c("NK cells activated",levels(ciberlong$cell)[grep("T cell", levels(ciberlong$cell))])))+
+  geom_boxplot(aes(x=group, y=value,fill=cell))
+
+NK <- ciberlong%>%
+  filter(cell=="NK cells activated")
+
+qqnorm(NK$value)
+shapiro.test(NK$value)
+
+aov <- aov(as.formula(NK$value~NK$response*NK$drug))
+res.anova <- anova(aov, NK)
+TukeyHSD(aov)
+
+
+aov <- aov(as.formula(NK$value~NK$group))
+bptest(NK$value)
+rstatix::anova_test(aov)
+
+
+NKsensitive <- NK%>%
+  filter(group==c("Sensitive_olaparib", "Sensitive_control"))
+t.test(x=NKsensitive$value, formula=NKsensitive$value~NKsensitive$group)
+
+NKresistant <- NK%>%
+  filter(group==c("Resistant_olaparib", "Resistant_control"))
+t.test(x=NKresistant$value, formula=NKresistant$value~NKresistant$group)
+
+```
+```{r}
+#install_github("ebecht/MCPcounter",ref="master", subdir="Source")
+library(MCPcounter)
+mcpres <- MCPcounter.estimate(NormByTPM,
+                    featuresType="HUGO_symbols")
+
+
+mcpres <- as.data.frame(t(mcpres))
+
+mcpres$group <-phenodata$Group
+mcpres$sample <- rownames(mcpres)
+
+mcpreslong <- tidyr::pivot_longer(mcpres, 1:9, "cell")
+
+ggplot(mcpreslong)+
+  geom_col(aes(x=group, y=value,fill=cell))
+
+mcpreslong <- as.data.frame(mcpreslong)%>%
+  filter(cell%in%"NK cells")
+
+ggplot(mcpreslong%>%
+         filter(cell=="Endothelial cells"))+
+  geom_boxplot(aes(x=group, y=value,fill=cell))
+
+column_ha = HeatmapAnnotation(foo1 = phenodata$Group)
+nkgepscaled <-pheatmap:::scale_rows(nkgep)
+Heatmap(mcpres, top_annotation=column_ha,column_order= rownames(phenodata%>%dplyr::arrange(by_group=Group)))
+
+
+
+
+
+NK <- mcpreslong%>%
+  filter(cell=="NK cells")
+
+qqnorm(NK$value)
+shapiro.test(NK$value)
+
+aov <- aov(as.formula(NK$value~NK$group))
+res.anova <- anova(aov, NK)
+TukeyHSD(aov)
+#DeconRNAseq, TIMER
+```
+
+
+```{r}
+
+quantires <- quantiseqr::run_quantiseq(NormByTPM,
+               signature_matrix=,
+               is_arraydata=FALSE,
+               is_tumordata=TRUE,
+               scale_mRNA=TRUE)
+
+
+
+pcaResults <- prcomp(quantires[-1])
+plot(pcaResults) # PC % of variability
+factoextra::fviz_pca_ind(pcaResults, geom.ind=c("point"), repel=T, habillage= phenodata$Group, max.overlaps=5)
+
+quantires$group <- phenodata$Group
+quantilong <- tidyr::pivot_longer(quantires, 2:12, "cell" )
+
+ggplot(quantilong%>%
+         filter(cell=="NK.cells"))+
+  geom_boxplot(aes(x=group, y=value, fill=cell))
+
+quantiplot(quantires)
+```
+
+
