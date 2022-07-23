@@ -3,13 +3,12 @@ title: "bulkrnaseqPDX"
 output: html_document
 ---
 
-- És possible que els gens implicats en la resistència variin segons els PDX i que aleshores s'elimini al considerar el PDX com a adjustment variable.
 
 ```{r setup, warning=FALSE, message=FALSE, include=FALSE}
 knitr::opts_chunk$set(cache = T, warning=F, message=F)
 
 ```
-fer el grafic d'alpha per l'altre contrast i fer bonics els gràfics del pre-ranked GSEA pels dos contrastos
+
 
 ```{r packages_preparation}
 setwd("C:/Users/paucl/Documents/TFM/DEA")
