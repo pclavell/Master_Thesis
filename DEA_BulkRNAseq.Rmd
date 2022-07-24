@@ -615,7 +615,7 @@ Heatmap(input, top_annotation=column_ha)
 
 
 ```{r}
-# Proves amb GPALPP1
+# Tests with GPALPP1 and POLR2J2
 TMM <- as.data.frame(TMM)
 
 # Create a dataframe with GPALPP1 TMM and phenodata information
@@ -632,7 +632,7 @@ length(sensitiveALL) <- length(resistantALL)
 
 t.test(sensitiveALL, 
        resistantALL,
-       alternative = "two.sided",
+       alternative = "less",
        var.equal = T)
 
         
@@ -649,8 +649,18 @@ ggplot(plotthis, aes(x=Response, y=GPALPP1, fill=Response))+
 t.test(plotthis[plotthis$Response=="Sensitive", "GPALPP1"], 
        plotthis[plotthis$Response=="Resistant", "GPALPP1"], 
        paired = T,
-       alternative = "greater",
+       alternative = "less",
        var.equal = T)
+
+set.seed(1)
+library(ComplexHeatmap)
+col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
+column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
+                               Group = phenodata$Group,
+                               col = list(Volume = col_fun, 
+                                          Group = c("Sensitive_control" = "green", "Sensitive_olaparib" = "dark green", "Resistant_control" = "red", "Resistant_olaparib" = "dark red")))
+input <- t(scale(t(na.omit(as.data.frame(TMM)[c("GPALPP1","POLR2J2"),])))) #"GPALPP1","POLR2J2"
+Heatmap(input, top_annotation = column_ha, show_column_names=F)
 
 # # Ratio GPALPP1 expression in olaparib/control
 # ratio <- tapply(plotthis$GPALPP1, plotthis$PDX_name, \(x){x[1]/x[2]})
