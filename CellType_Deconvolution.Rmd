@@ -341,11 +341,30 @@ print(ggplot(quantilong %>%
   ggtitle(celltype))}
 ```
 
-
-
-
-rank-based single sample scoring method, singscore
 ```{r}
+# TIMER (reference-based method)
+timer <- immunedeconv::deconvolute_timer(TMM, indications = rep("brca", dim(TMM)[2]))
+
+# Add group info and pivot data
+timer <- as.data.frame(t(timer))
+timer$group <- phenodata$Group
+
+timerlong <- pivot_longer(timer, 1:6, "cell")
+
+# Boxplot of cell types by group
+for(celltype in levels(as.factor(quantilong$cell))){
+print(ggplot(quantilong %>%
+         filter(cell == celltype), aes(x = group, y = value, fill = cell))+
+  geom_boxplot()  +
+  theme_classic() +
+  ggtitle(celltype))}
+``` 
+
+
+
+
+```{r}
+# Singscore (rank-based single sample scoring method)
 library(singscore)
 library(GSEABase)
 library(SummarizedExperiment)
@@ -378,14 +397,6 @@ ggplot(scoredf)+
 
 
 barplot(scoredf$TotalScore)
-
-
-aov <- aov(as.formula(scoredf$TotalScore~scoredf$group))
-res.anova <- anova(aov)
-TukeyHSD(aov)
-
-
-
 
 # Permutation test
 ncores <- 1
