@@ -4,6 +4,8 @@ output: html_document
 date: '2022-06-23'
 ---
 
+# Preparation of data
+
 ```{r data_loading}
 ## Load data
 
@@ -19,8 +21,6 @@ phenodata.original <-as.data.frame( readxl::read_xlsx("C:/Users/paucl/Documents/
 colnames(phenodata.original)[colnames(phenodata.original)=="Response (R/S)"] <- "Response"
 colnames(phenodata.original)[colnames(phenodata.original)=="PDX name"] <- "PDX_name"
 ```
-
-
 
 ```{r modifications_on_data0} 
 # Create phenodata variable Original PDX
@@ -77,10 +77,6 @@ sum(colnames(counts) %in% phenodata.original[,2])
 sum(colnames(counts) == phenodata.original[,2])/dim(phenodata.original)[1]
 ```
 
-
-
-Data is subsetted by 
-
 ```{r subsetting}
 phenodata <- phenodata.original
 
@@ -91,7 +87,6 @@ phenodata <- phenodata%>%
   mutate(Group=as.factor(paste(Response, Drug, sep="_")))%>%
   filter(`Mouse strain`=="Hsd:Athymic Nude-Foxn1nu")
 ```
-The sample names are changed to PDX model name.
 
 ```{r new_column_names}
 # Change names of samples
@@ -107,7 +102,6 @@ rownames(phenodata) <- new.names
 nsamples <- nrow(phenodata)
 ```
 
-
 ```{r}
 # Check that there are no NA
 non_na <- complete.cases(counts)
@@ -117,14 +111,12 @@ sum(!non_na)# should be 0
 counts <- counts[non_na,]
 ```
 
-Library size is computed by summarizing the total number of counts per sample and library sizes are explored by a barplot and a boxplot.
 ```{r}
 # Create a column with ensembl_id
 gene_metadata <- gene_metadata %>%
   filter(ensembl_id_version %in% rownames(counts))%>%
   mutate(ensembl_id= gsub("\\..*$", "",ensembl_id_version))
 ```
-
 
 ```{r}
 library(biomaRt)
@@ -155,8 +147,6 @@ counts <- counts%>%
 
 #mirar llargada i mirar si conservem els gens de la signatura.
 ```
-
-
 
 ```{r}
 # Download gene start and end positions to compute gene length 
@@ -189,12 +179,10 @@ barplot(lib.size, las=2, col=as.factor(phenodata$"Group"))
 legend("topleft", levels(phenodata$Group), fill=1:4)
 title("Library size per sample by response")
 
-# Remove the sample with very big library
+# Remove the sample with much bigger library
 counts <- counts[lib.size!=max(lib.size)]
 phenodata <- phenodata[lib.size!=max(lib.size),]
 ```
-
-
 
 ```{r}
 # Compute TMM
@@ -214,6 +202,145 @@ colSums(NormByTPM, na.rm=TRUE)#equals 1e+06
 rownames(NormByTPM) <- toupper(gene_metadata$gene_symbol)
 NormByTPM <- as.data.frame(NormByTPM)
 ```
+
+
+# Application of Deconvolution Methods
+
+```{r}
+# Load Packages
+packages <- c("dplyr", "stringr", "ggplot2", "biomaRt", "pheatmap", "devtools")
+lapply(packages, library, character.only = TRUE)
+
+```
+
+```{r}
+## EPIC (TRef reference-based method)
+
+#install_github("GfellerLab/EPIC", build_vignettes=TRUE)
+library(EPIC)
+
+# Run EPIC cell type deconvolution analysis
+out <- EPIC(bulk = as.matrix(NormByTPM))
+
+# Add group factor and pivot longer to input in ggplot
+cellfractions <- as.data.frame(out$cellFractions)
+
+cellfractions$sample <- rownames(out$cellFractions)
+cellfractions$group <- phenodata$Group
+
+cellFrac <- tidyr::pivot_longer(as.data.frame(cellfractions), 1:8, "cell")
+
+# Barplot by sample filled by cell type
+ggplot(cellFrac)+
+  geom_col(aes(x = sample, y = value, fill = cell))
+
+# Boxplot dodged by group
+ggplot(cellFrac)+
+  geom_boxplot(aes(x = group, y = value, position = "dodge", fill = cell), trim=TRUE)+
+  theme_classic()
+
+# Boxplot of cell types by group
+for(celltype in levels(as.factor(cellFrac$cell))){
+print(ggplot(cellFrac %>%
+         filter(cell == celltype), aes(x = group, y = value, fill = cell))+
+  geom_boxplot()  +
+  theme_classic() +
+  ggtitle(celltype))}
+```
+
+```{r}
+## CIBERSORT (lm22 reference-based method)
+
+#install_github("IOBR/IOBR")
+library(IOBR)
+
+# Run cibersort
+cibersort <- CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN = T, absolute = F) # absolute=T, abs_method = "sig.score"
+
+# Add columns with conditions info
+cibersort <- as.data.frame(cibersort)
+cibersort$group <- phenodata$Group
+
+# Check distribution of correlations by group
+boxplot(cibersort$Correlation~cibersort$group)
+
+# Pivot data
+ciberlong <- tidyr::pivot_longer(as.data.frame(cibersort), 1:25, "cell" )
+ciberlong$cell <- as.factor(ciberlong$cell)
+
+# Remove unwanted info for plotting
+ciberlong <- ciberlong%>%
+  filter(!(cell%in%c("P-value","Correlation","RMSE")))
+
+# Boxplot of cell types by group
+for(celltype in levels(as.factor(ciberlong$cell))){
+print(ggplot(ciberlong %>%
+         filter(cell == celltype), aes(x = group, y = value, fill = cell))+
+  geom_boxplot()  +
+  theme_classic() +
+  ggtitle(celltype))}
+```
+
+```{r}
+## MCPcounter (Marker-based method)
+
+#install_github("ebecht/MCPcounter", ref="master", subdir="Source")
+library(MCPcounter)
+
+# Run MCPcounter
+mcpres <- MCPcounter.estimate(NormByTPM,
+                    featuresType="HUGO_symbols")
+
+# Add group info
+mcpres <- as.data.frame(t(mcpres))
+mcpres$group <-phenodata$Group
+mcpres$sample <- rownames(mcpres)
+
+# Pivot data
+mcpreslong <- tidyr::pivot_longer(mcpres, 1:9, "cell")
+
+
+# Boxplot of cell types by group
+for(celltype in levels(as.factor(mcpreslong$cell))){
+print(ggplot(mcpreslong %>%
+         filter(cell == celltype), aes(x = group, y = value, fill = cell))+
+  geom_boxplot()  +
+  theme_classic() +
+  ggtitle(celltype))}
+
+# Heatmap
+column_ha = HeatmapAnnotation(Group = phenodata$Group)
+Heatmap(t(mcpres[1:7]), top_annotation=column_ha)
+```
+
+
+```{r}
+## quanTIseq (TIL10 Reference-based method) (probably the best so far)
+library(quantiseqr)
+
+# Run quanTIseq
+quantires <- quantiseqr::run_quantiseq(NormByTPM,
+               signature_matrix=,
+               is_arraydata=FALSE,
+               is_tumordata=TRUE,
+               scale_mRNA=TRUE)
+
+# Add group info and pivot
+quantires$group <- phenodata$Group
+quantilong <- tidyr::pivot_longer(quantires, 2:12, "cell" )
+
+# Quantiseq plot
+quantiplot(quantires)
+
+# Boxplot of cell types by group
+for(celltype in levels(as.factor(quantilong$cell))){
+print(ggplot(quantilong %>%
+         filter(cell == celltype), aes(x = group, y = value, fill = cell))+
+  geom_boxplot()  +
+  theme_classic() +
+  ggtitle(celltype))}
+```
+
 
 
 rank-based single sample scoring method, singscore
@@ -309,178 +436,3 @@ Heatmap(nkgepscaled, top_annotation=column_ha)
 #without clustering
 Heatmap(nkgepscaled, top_annotation=column_ha, column_order= rownames(phenodata%>%dplyr::arrange(by_group=Group)))
 ```
-
-
-```{r packages_preparation}
-#devtools::install_github("GfellerLab/EPIC", build_vignettes=TRUE)
-
-packages <- c("dplyr", "stringr", "ggplot2", "biomaRt", "pheatmap", "devtools", "EPIC", "quantiseqr")
-lapply(packages, library, character.only = TRUE)
-```
-
-```{r}
-## EPIC
-
-# Run EPIC cell type deconvolution analysis
-out <- EPIC(bulk = as.matrix(NormByTPM))
-
-# Add group factor and pivot longer to input in ggplot
-cellfractions <- as.data.frame(out$cellFractions)
-
-cellfractions$sample <- rownames(out$cellFractions)
-cellfractions$group <- phenodata$Group
-
-cellFrac <- tidyr::pivot_longer(as.data.frame(cellfractions), 1:8, "cell")
-
-# Barplot by sample filled by cell type
-ggplot(cellFrac)+
-  geom_col(aes(x=sample, y=value, fill=cell))
-
-# Boxplot dodged by group
-ggplot(cellFrac)+
-  geom_boxplot(aes(x=group, y=value, position="dodge", fill=cell), trim=TRUE)+
-  theme_classic()
-
-# Boxplot of cell types by group
-for(celltype in levels(as.factor(cellFrac$cell))){
-print(ggplot(cellFrac%>%
-         filter(cell== celltype),aes(x=group, y=value, fill=cell))+
-  geom_boxplot()  +
-  theme_classic() +
-  ggtitle(celltype))}
-
-```
-
-```{r}
-# devtools::install_github("IOBR/IOBR")
-library(IOBR)
-
-# Run cibersort
-cibersort<-CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN=TRUE, absolute=FALSE)
-
-# Add columns with conditions info
-cibersort <- as.data.frame(cibersort)
-cibersort$group <-phenodata$Group
-cibersort$sample <- rownames(cibersort)
-cibersort$pdx <- phenodata$Original_PDX
-cibersort$response <- phenodata$Response
-cibersort$drug <- phenodata$Drug
-
-
-# Pivot data
-ciberlong <- tidyr::pivot_longer(as.data.frame(cibersort), 1:25, "cell" )
-ciberlong$cell <- as.factor(ciberlong$cell)
-
-ciberlong <- ciberlong%>%
-  filter(!(cell%in%c("P-value","Correlation","RMSE")))
-
-# Plot everything
-ggplot(ciberlong)+
-  geom_col(aes(x=group, y=value,fill=cell), position="stack")
-
-# Plot only NK activated
-ggplot(ciberlong%>%
-         filter(cell=="NK cells activated"))+
-  geom_boxplot(aes(x=group, y=value,fill=cell))
-
-
-
-ggplot(ciberlong%>%
-         filter(cell%in%c("NK cells activated",levels(ciberlong$cell)[grep("T cell", levels(ciberlong$cell))])))+
-  geom_boxplot(aes(x=group, y=value,fill=cell))
-
-NK <- ciberlong%>%
-  filter(cell=="NK cells activated")
-
-qqnorm(NK$value)
-shapiro.test(NK$value)
-
-aov <- aov(as.formula(NK$value~NK$response*NK$drug))
-res.anova <- anova(aov, NK)
-TukeyHSD(aov)
-
-
-aov <- aov(as.formula(NK$value~NK$group))
-bptest(NK$value)
-rstatix::anova_test(aov)
-
-
-NKsensitive <- NK%>%
-  filter(group==c("Sensitive_olaparib", "Sensitive_control"))
-t.test(x=NKsensitive$value, formula=NKsensitive$value~NKsensitive$group)
-
-NKresistant <- NK%>%
-  filter(group==c("Resistant_olaparib", "Resistant_control"))
-t.test(x=NKresistant$value, formula=NKresistant$value~NKresistant$group)
-
-```
-```{r}
-#install_github("ebecht/MCPcounter",ref="master", subdir="Source")
-library(MCPcounter)
-mcpres <- MCPcounter.estimate(NormByTPM,
-                    featuresType="HUGO_symbols")
-
-
-mcpres <- as.data.frame(t(mcpres))
-
-mcpres$group <-phenodata$Group
-mcpres$sample <- rownames(mcpres)
-
-mcpreslong <- tidyr::pivot_longer(mcpres, 1:9, "cell")
-
-ggplot(mcpreslong)+
-  geom_col(aes(x=group, y=value,fill=cell))
-
-mcpreslong <- as.data.frame(mcpreslong)%>%
-  filter(cell%in%"NK cells")
-
-ggplot(mcpreslong%>%
-         filter(cell=="Endothelial cells"))+
-  geom_boxplot(aes(x=group, y=value,fill=cell))
-
-column_ha = HeatmapAnnotation(foo1 = phenodata$Group)
-nkgepscaled <-pheatmap:::scale_rows(nkgep)
-Heatmap(mcpres, top_annotation=column_ha,column_order= rownames(phenodata%>%dplyr::arrange(by_group=Group)))
-
-
-
-
-
-NK <- mcpreslong%>%
-  filter(cell=="NK cells")
-
-qqnorm(NK$value)
-shapiro.test(NK$value)
-
-aov <- aov(as.formula(NK$value~NK$group))
-res.anova <- anova(aov, NK)
-TukeyHSD(aov)
-#DeconRNAseq, TIMER
-```
-
-
-```{r}
-
-quantires <- quantiseqr::run_quantiseq(NormByTPM,
-               signature_matrix=,
-               is_arraydata=FALSE,
-               is_tumordata=TRUE,
-               scale_mRNA=TRUE)
-
-
-
-pcaResults <- prcomp(quantires[-1])
-plot(pcaResults) # PC % of variability
-factoextra::fviz_pca_ind(pcaResults, geom.ind=c("point"), repel=T, habillage= phenodata$Group, max.overlaps=5)
-
-quantires$group <- phenodata$Group
-quantilong <- tidyr::pivot_longer(quantires, 2:12, "cell" )
-
-ggplot(quantilong%>%
-         filter(cell=="NK.cells"))+
-  geom_boxplot(aes(x=group, y=value, fill=cell))
-
-quantiplot(quantires)
-```
-
-
