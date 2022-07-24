@@ -615,16 +615,16 @@ Heatmap(input, top_annotation=column_ha)
 
 
 ```{r}
-# Proves amb POL2RJ
+# Proves amb GPALPP1
 TMM <- as.data.frame(TMM)
 
-# Create a dataframe with POL2RJ TMM and phenodata information
-plotthis <- cbind.data.frame("POL2RJ"=t(TMM[grep("POL2RJ", rownames(TMM)),]), 
+# Create a dataframe with GPALPP1 TMM and phenodata information
+plotthis <- cbind.data.frame("GPALPP1"=t(TMM[grep("GPALPP1", rownames(TMM)),]), 
                              phenodata[,c("Group", "Drug", "Response", "PDX_name", "Original_PDX")])
 
-# Look for differences in POL2RJ expression
-sensitiveALL <- subset(plotthis, Response=="Sensitive")$POL2RJ
-resistantALL <- subset(plotthis, Response=="Resistant")$POL2RJ
+# Look for differences in GPALPP1 expression
+sensitiveALL <- subset(plotthis, Response=="Sensitive")$GPALPP1
+resistantALL <- subset(plotthis, Response=="Resistant")$GPALPP1
 
 var.test(sensitiveALL, resistantALL)
 
@@ -642,18 +642,18 @@ plotthis <- plotthis[plotthis$Original_PDX%in%levels(plotthis$Original_PDX)[tabl
 # Order by PDX_name and Drug
 plotthis <- plotthis[order(plotthis$PDX_name, plotthis$Drug),]
 
-ggplot(plotthis, aes(x=Response, y=POL2RJ, fill=Response))+
+ggplot(plotthis, aes(x=Response, y=GPALPP1, fill=Response))+
   geom_boxplot()+
   geom_point(aes(group= PDX_name))+
   theme_classic()
-t.test(plotthis[plotthis$Response=="Sensitive", "POL2RJ"], 
-       plotthis[plotthis$Response=="Resistant", "POL2RJ"], 
+t.test(plotthis[plotthis$Response=="Sensitive", "GPALPP1"], 
+       plotthis[plotthis$Response=="Resistant", "GPALPP1"], 
        paired = T,
        alternative = "greater",
        var.equal = T)
 
-# # Ratio POL2RJ expression in olaparib/control
-# ratio <- tapply(plotthis$POL2RJ, plotthis$PDX_name, \(x){x[1]/x[2]})
+# # Ratio GPALPP1 expression in olaparib/control
+# ratio <- tapply(plotthis$GPALPP1, plotthis$PDX_name, \(x){x[1]/x[2]})
 # 
 # # Create a dataframe with ratio, original PDX and response
 # ratio.df <- cbind.data.frame("Ratio" = ratio, 
@@ -669,7 +669,7 @@ t.test(plotthis[plotthis$Response=="Sensitive", "POL2RJ"],
 # ggplot(ratio.df)+
 #   geom_boxplot(aes(x=Response, y=Ratio))
 # 
-# # Treatment effect on POL2RJ expression is higher in sensitive
+# # Treatment effect on GPALPP1 expression is higher in sensitive
 # t.test(ratio.df[ratio.df$Response=="Sensitive","Ratio"], 
 #        ratio.df[ratio.df$Response=="Resistant","Ratio"], 
 #        paired = T,
@@ -688,9 +688,46 @@ t.test(plotthis[plotthis$Response=="Sensitive", "POL2RJ"],
 # geom_line(aes(group = name)) + 
 # geom_point(size = 2)
 # 
-# ggplot(plotthis, aes(x = Drug, y = POL2RJ)) + 
+# ggplot(plotthis, aes(x = Drug, y = GPALPP1)) + 
 # geom_violin(aes(fill = Drug), alpha = .2) +
 # geom_line(aes(group = PDX_name)) + 
 # geom_point(size = 2)
+```
+
+```{r}
+## Check which DEGs are different between drug_sensitive and resistance_olaparib
+
+# Subset DEGS
+deg.drug_sensitive.up <- pull(subset(DEresults.drug_sensitive, log2FoldChange>0.585 & padj<0.05), symbol)
+deg.drug_sensitive.dw <- pull(subset(DEresults.drug_sensitive, log2FoldChange<0.585 & padj<0.05), symbol)
+deg.drug_sensitive <- c(deg.drug_sensitive.up, deg.drug_sensitive.dw)
+
+
+deg.resistance_olaparib.up <- pull(subset(DEresults.resistance_olaparib, log2FoldChange>0.585 & padj<0.05), symbol)
+deg.resistance_olaparib.dw <- pull(subset(DEresults.resistance_olaparib, log2FoldChange<0.585 & padj<0.05), symbol)
+deg.resistance_olaparib <- c(deg.resistance_olaparib.up, deg.resistance_olaparib.dw)
+
+# Intersect and difference
+inters <- intersect(deg.drug_sensitive, deg.resistance_olaparib)
+diff.drug <- setdiff(deg.drug_sensitive, deg.resistance_olaparib)
+diff.resist <- setdiff(deg.resistance_olaparib, deg.drug_sensitive)
+
+
+up.drug <- diff.drug[diff.drug %in% deg.drug_sensitive.up]
+dw.drug <- diff.drug[diff.drug %in% deg.drug_sensitive.dw]
+
+up.resist <- diff.resist[diff.resist %in% deg.resistance_olaparib.up]
+dw.resist <- diff.resist[diff.resist %in% deg.resistance_olaparib.dw]
+
+res.list <- list("UPcommon in treated vs control AND sensitives vs resistants" = inters[inters %in% deg.drug_sensitive],
+                 "UPcommon in control vs treated AND resistants vs sensitive" = inters[inters %in% deg.resistance_olaparib.dw],
+                 "UPdiff in treated_sensitives vs control_sensitives" = up.drug, 
+                 "UPdiff in control_sensitives vs treated_sensitives" = dw.drug, 
+                 "UPdiff in sensitives_treated vs resistants_treated" = up.resist, 
+                 "UPdiff in resistants_treated vs sensitives_treated" = dw.resist)
+
+capture.output(res.list, file = "C:/Users/paucl/Documents/TFM/DEA/results/DEGs_drug_sensitive_AND_resistance_olaparib.txt")
+
+DEresults.drug_sensitive[grep("RBL", DEresults.drug_sensitive$symbol),] # VEGFA and RBL1 downregulated in treated (vs non-treated, all sensitive)
 ```
 
