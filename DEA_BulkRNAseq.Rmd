@@ -374,16 +374,16 @@ Heatmap(input, top_annotation=column_ha)
 
 
 ```{r}
-# Tests with GPALPP1 and POLR2J2
+# Tests with POLR2J2 and GPALPP1
 TMM <- as.data.frame(TMM)
 
-# Create a dataframe with GPALPP1 TMM and phenodata information
-plotthis <- cbind.data.frame("GPALPP1"=t(TMM[grep("GPALPP1", rownames(TMM)),]), 
+# Create a dataframe with POLR2J2 TMM and phenodata information
+plotthis <- cbind.data.frame("POLR2J2"=t(TMM[grep("POLR2J2", rownames(TMM)),]), 
                              phenodata[,c("Group", "Drug", "Response", "PDX_name", "Original_PDX")])
 
-# Look for differences in GPALPP1 expression
-sensitiveALL <- subset(plotthis, Response=="Sensitive")$GPALPP1
-resistantALL <- subset(plotthis, Response=="Resistant")$GPALPP1
+# Look for differences in POLR2J2 expression
+sensitiveALL <- subset(plotthis, Response=="Sensitive")$POLR2J2
+resistantALL <- subset(plotthis, Response=="Resistant")$POLR2J2
 
 var.test(sensitiveALL, resistantALL)
 
@@ -401,18 +401,20 @@ plotthis <- plotthis[plotthis$Original_PDX%in%levels(plotthis$Original_PDX)[tabl
 # Order by PDX_name and Drug
 plotthis <- plotthis[order(plotthis$PDX_name, plotthis$Drug),]
 
-ggplot(plotthis, aes(x=Response, y=GPALPP1, fill=Response))+
+ggplot(plotthis, aes(x=Response, y=POLR2J2, fill=Response))+
   geom_boxplot()+
   geom_point(aes(group= PDX_name))+
   theme_classic()
-t.test(plotthis[plotthis$Response=="Sensitive", "GPALPP1"], 
-       plotthis[plotthis$Response=="Resistant", "GPALPP1"], 
+t.test(plotthis[plotthis$Response=="Sensitive", "POLR2J2"], 
+       plotthis[plotthis$Response=="Resistant", "POLR2J2"], 
        paired = T,
        alternative = "less",
        var.equal = T)
 
 
+
 library(ComplexHeatmap)
+png("C:/Users/paucl/Documents/TFM/DEA/results/heatmap_POLR2J2_POLR2J2.png", width=6, height=3, units="in", res=1024)
 col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
 column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
                                Group = phenodata$Group,
@@ -420,6 +422,8 @@ column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`,
                                           Group = c("Sensitive_control" = "green", "Sensitive_olaparib" = "dark green", "Resistant_control" = "red", "Resistant_olaparib" = "dark red")))
 input <- t(scale(t(na.omit(as.data.frame(TMM)[c("GPALPP1","POLR2J2"),])))) #"GPALPP1","POLR2J2"
 Heatmap(input, top_annotation = column_ha, show_column_names=F)
+dev.off()
+
 ```
 
 ```{r}
