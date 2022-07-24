@@ -652,7 +652,7 @@ t.test(plotthis[plotthis$Response=="Sensitive", "GPALPP1"],
        alternative = "less",
        var.equal = T)
 
-set.seed(1)
+
 library(ComplexHeatmap)
 col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
 column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
@@ -661,47 +661,6 @@ column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`,
                                           Group = c("Sensitive_control" = "green", "Sensitive_olaparib" = "dark green", "Resistant_control" = "red", "Resistant_olaparib" = "dark red")))
 input <- t(scale(t(na.omit(as.data.frame(TMM)[c("GPALPP1","POLR2J2"),])))) #"GPALPP1","POLR2J2"
 Heatmap(input, top_annotation = column_ha, show_column_names=F)
-
-# # Ratio GPALPP1 expression in olaparib/control
-# ratio <- tapply(plotthis$GPALPP1, plotthis$PDX_name, \(x){x[1]/x[2]})
-# 
-# # Create a dataframe with ratio, original PDX and response
-# ratio.df <- cbind.data.frame("Ratio" = ratio, 
-#                              "Original_PDX" = factor(plotthis[match(names(ratio), plotthis$PDX_name), "Original_PDX"]),
-#                              "Response" = plotthis[match(names(ratio), plotthis$PDX_name), "Response"])
-# 
-# # Order
-# ratio.df <- ratio.df[order(ratio.df$Original_PDX, ratio.df$Response),]
-# 
-# # Compute ratio sensitive/resistant
-# ratrat <- tapply(ratio.df$Ratio, factor(ratio.df$Original_PDX),  \(x){x[1]/x[2]})
-# 
-# ggplot(ratio.df)+
-#   geom_boxplot(aes(x=Response, y=Ratio))
-# 
-# # Treatment effect on GPALPP1 expression is higher in sensitive
-# t.test(ratio.df[ratio.df$Response=="Sensitive","Ratio"], 
-#        ratio.df[ratio.df$Response=="Resistant","Ratio"], 
-#        paired = T,
-#        alternative = "less")
-# 
-# 
-# 
-# set.seed(123)
-# sample <- data.frame(name = c(rep("Amy",4),rep("Bob",4),rep("Jack",4)),
-#                      status = rep(c("Before","After"),6),
-#                      test = rep(c("English","English","Math","Math"),3),
-#                      score = sample(60:100,12,replace=T))
-# 
-# ggplot(sample, aes(x = status, y = score)) + 
-# geom_boxplot(aes(fill = status), alpha = .2) +
-# geom_line(aes(group = name)) + 
-# geom_point(size = 2)
-# 
-# ggplot(plotthis, aes(x = Drug, y = GPALPP1)) + 
-# geom_violin(aes(fill = Drug), alpha = .2) +
-# geom_line(aes(group = PDX_name)) + 
-# geom_point(size = 2)
 ```
 
 ```{r}
