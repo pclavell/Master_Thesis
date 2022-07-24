@@ -341,29 +341,7 @@ print(ggplot(quantilong %>%
   ggtitle(celltype))}
 ```
 
-```{r}
-## linseed (Reference-free method)
-devtools::install_github("ctlab/linseed")
-library(linseed)
 
-# Prepare input (linseed object)
-lo <- LinseedObject$new(TMM)
-
-lo$calculatePairwiseLinearity()
-lo$calculateSpearmanCorrelation()
-lo$calculateSignificanceLevel(100)
-lo$significancePlot(0.01)
-lo$filterDatasetByPval(0.01)
-lo$svdPlot()
-
-lo$setCellTypeNumber(10)
-lo$project("full") # projecting full dataset
-lo$projectionPlot(color="filtered")
-lo$project("filtered")
-lo$smartSearchCorners(dataset="filtered", error="norm")
-lo$deconvolveByEndpoints()
-plotProportions(lo$proportions)
-```
 
 
 rank-based single sample scoring method, singscore
