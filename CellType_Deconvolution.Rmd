@@ -364,7 +364,7 @@ print(ggplot(quantilong %>%
 
 
 ```{r}
-# Singscore (rank-based single sample scoring method)
+## SINGSCORE (rank-based single sample scoring method)
 library(singscore)
 library(GSEABase)
 library(SummarizedExperiment)
@@ -395,56 +395,12 @@ ggplot(scoredf)+
 ggplot(scoredf)+
   geom_boxplot(aes(x=group,y=TotalScore, fill=group))
 
-
-barplot(scoredf$TotalScore)
-
-# Permutation test
-ncores <- 1
-
-permuteResult <-
-  generateNull(
-    upSet = NKsig,
-    rankData = rankData,
-    subSamples = 1:63,
-    centerScore = TRUE,
-    knownDirection = TRUE,
-    B = 1000,
-    ncores = ncores,
-    seed = 1,
-    useBPPARAM = NULL
-  )
-
-# get pvals
-pvals <- getPvals(permuteResult, scoredf, subSamples =1:63)
-
-
-plotNull(permuteResult, scoredf, pvals, sampleNames = names(pvals)[1])
-
-pvals <- as.data.frame(pvals)
-pvals$group <- phenodata$Group
-
-ggplot(as.data.frame(pvals))+
-  geom_density(aes(x=pvals))
-  
-ggplot(as.data.frame(pvals))+
-  geom_boxplot(aes(x=group, y=pvals, fill=group))
-```
-
-```{r}
 library(ComplexHeatmap)
 nkgep <- NormByTPM%>%
   filter(rownames(NormByTPM)%in%NKsig)
 
-pheatmap::pheatmap(as.matrix(nkgep), scale="row")
-
-
-
+# Heatmap
 column_ha = HeatmapAnnotation(foo1 = phenodata$Group)
 nkgepscaled <-pheatmap:::scale_rows(nkgep)
-
-#with clustering
 Heatmap(nkgepscaled, top_annotation=column_ha)
-
-#without clustering
-Heatmap(nkgepscaled, top_annotation=column_ha, column_order= rownames(phenodata%>%dplyr::arrange(by_group=Group)))
 ```
