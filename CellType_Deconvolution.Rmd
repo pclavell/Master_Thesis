@@ -197,6 +197,7 @@ phenodata <- phenodata[lib.size!=max(lib.size),]
 
 
 ```{r}
+# Compute TMM
 TMM <- tweeDEseq::normalizeCounts(counts, method="TMM")
 rownames(TMM) <- toupper(gene_metadata$gene_symbol)
 TMM <- as.data.frame(TMM)
@@ -289,6 +290,7 @@ ggplot(as.data.frame(pvals))+
 ggplot(as.data.frame(pvals))+
   geom_boxplot(aes(x=group, y=pvals, fill=group))
 ```
+
 ```{r}
 library(ComplexHeatmap)
 nkgep <- NormByTPM%>%
@@ -310,8 +312,6 @@ Heatmap(nkgepscaled, top_annotation=column_ha, column_order= rownames(phenodata%
 
 
 ```{r packages_preparation}
-setwd("C:/Users/paucl/Documents/TFM/analysis")
-
 #devtools::install_github("GfellerLab/EPIC", build_vignettes=TRUE)
 
 packages <- c("dplyr", "stringr", "ggplot2", "biomaRt", "pheatmap", "devtools", "EPIC", "quantiseqr")
@@ -319,6 +319,8 @@ lapply(packages, library, character.only = TRUE)
 ```
 
 ```{r}
+## EPIC
+
 # Run EPIC cell type deconvolution analysis
 out <- EPIC(bulk = as.matrix(NormByTPM))
 
@@ -330,7 +332,7 @@ cellfractions$group <- phenodata$Group
 
 cellFrac <- tidyr::pivot_longer(as.data.frame(cellfractions), 1:8, "cell")
 
-# General boxplot by cell type
+# Barplot by sample filled by cell type
 ggplot(cellFrac)+
   geom_col(aes(x=sample, y=value, fill=cell))
 
@@ -339,35 +341,16 @@ ggplot(cellFrac)+
   geom_boxplot(aes(x=group, y=value, position="dodge", fill=cell), trim=TRUE)+
   theme_classic()
 
-ggplot(cellFrac%>%
-         filter(cell=="Endothelial"))+
-  geom_boxplot(aes(x=group, y=value, position="dodge", fill=cell), trim=TRUE)+
-  theme_classic()
-
-# Boxplot of immune cell types by group
-immunecell <- cellFrac%>%
-  filter(!(cell%in%c("CAFs", "Endothelial", "otherCells")))
-immunecell$cell <- factor(immunecell$cell)
-ggplot(immunecell,aes(x=group, y=value, fill=cell))+
+# Boxplot of cell types by group
+for(celltype in levels(as.factor(cellFrac$cell))){
+print(ggplot(cellFrac%>%
+         filter(cell== celltype),aes(x=group, y=value, fill=cell))+
   geom_boxplot()  +
-  theme_classic()
-
-# Boxplot of NKcells
-ggplot(NK,aes(x=group, y=value, fill=cell))+
-  geom_boxplot()  +
-  theme_classic()
-
-#provar cibersort amb absolute setting
-
-range(cellFrac$value)
-
-out$fit.gof
-
-aov <- aov(as.formula(cellfractions$Endothelial~scoredf$group))
-res.anova <- anova(aov)
-TukeyHSD(aov)
+  theme_classic() +
+  ggtitle(celltype))}
 
 ```
+
 ```{r}
 # devtools::install_github("IOBR/IOBR")
 library(IOBR)
