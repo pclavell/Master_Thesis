@@ -144,8 +144,6 @@ gene_metadata <- gene_metadata%>%
 # remove counts with unknown human gene
 counts <- counts%>%
   filter(rownames(counts)%in%gene_metadata$ensembl_id_version)
-
-#mirar llargada i mirar si conservem els gens de la signatura.
 ```
 
 ```{r}
@@ -255,7 +253,7 @@ print(ggplot(cellFrac %>%
 library(IOBR)
 
 # Run cibersort
-cibersort <- CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN = T, absolute = F) # absolute=T, abs_method = "sig.score"
+cibersort <- CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN = T, absolute = F) # absolute=T, abs_method = "sig.score"                            #better wiht counts (jin liu et al 2021)
 
 # Add columns with conditions info
 cibersort <- as.data.frame(cibersort)

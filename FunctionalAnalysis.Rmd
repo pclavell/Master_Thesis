@@ -363,11 +363,18 @@ colnames(GSEAall) <- GSEAall_names
 # Add pathways
 GSEAall$pathway <- GSEAres_drug_sensitive$pathway[order(GSEAres_drug_sensitive$pathway)]
 
-GSEAlong <- pivot_longer(GSEAall, c(2,4,6,8), "Contrast", values_to = "NES")
+GSEAsub <- GSEAall %>%
+  filter(sum(padj.drug_sensitive<0.05 , padj.drug_resistant<0.05 , padj.resistance_control <0.05 , padj.resistance_olaparib<0.05)>1)
+
+GSEAlong <- pivot_longer(GSEAsub, c(2,4,6,8), "Contrast", values_to = "NES")
 GSEAlong <- pivot_longer(GSEAlong, 2:5, "Contrast2", values_to = "FDR")
 # Plot
-ggplot(GSEAlong)+
-  geom_point(aes(x = Contrast, y = NES, color = pathway))+
-  theme(legend.position = "none")
+ggplot(GSEAlong, aes(x = Contrast, y = NES))+
+  geom_point(aes(color = pathway))+
+  geom_line(aes(group = pathway, color=pathway))
+
+ordenar la suma dels abs(NES)
+
+
 ```
 
