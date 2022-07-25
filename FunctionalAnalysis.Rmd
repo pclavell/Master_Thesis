@@ -150,8 +150,6 @@ plotPathwayRanks <- function(pathway, stats, gseaParam = 1, ticksSize = 0.2){
       labs(x = "Rank",
            y = "Enrichment Score")
     print(g)}
-
-
 ```
 
 
