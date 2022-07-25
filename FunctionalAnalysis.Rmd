@@ -331,3 +331,43 @@ for(contrast in contrast.vector){
            height= 4)}
 
 ```
+
+```{r}
+# Set contrasts
+contrast.vector <- c("drug_sensitive", "drug_resistant", "resistance_control", "resistance_olaparib")
+contrast_names <- c("olaparib_vs_control_allsensitive", "olaparib_vs_control_allresistant", "sensitive_vs_resistant_allcontrol", "sensitive_vs_resistant_alltreated")
+names(contrast_names) <- contrast.vector
+
+# Load DEresults
+for(contrast in contrast.vector){
+  assign(paste0("GSEAres_", contrast),
+         read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/", 
+                         contrast, 
+                         "/", "GSEAres_",
+                         contrast_names[contrast],".csv")))}
+
+# Prepare data.frame
+GSEAall <- c(rep(NA, 50))
+for(contrast in contrast.vector){
+  GSEA <- get(paste0("GSEAres_", contrast))
+  GSEA <- GSEA[order(GSEA$pathway),]
+  GSEAall <- cbind.data.frame(GSEAall, GSEA$NES)
+  GSEAall <- cbind.data.frame(GSEAall, GSEA$padj)}
+
+# Prepare column names
+GSEAall_names <- c("pathway")
+for(contrast in contrast.vector){
+  GSEAall_names <- c(GSEAall_names, paste0("NES.", contrast), paste0("padj.", contrast))}
+colnames(GSEAall) <- GSEAall_names
+
+# Add pathways
+GSEAall$pathway <- GSEAres_drug_sensitive$pathway[order(GSEAres_drug_sensitive$pathway)]
+
+GSEAlong <- pivot_longer(GSEAall, c(2,4,6,8), "Contrast", values_to = "NES")
+GSEAlong <- pivot_longer(GSEAlong, 2:5, "Contrast2", values_to = "FDR")
+# Plot
+ggplot(GSEAlong)+
+  geom_point(aes(x = Contrast, y = NES, color = pathway))+
+  theme(legend.position = "none")
+```
+
