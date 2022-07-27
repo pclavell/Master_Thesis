@@ -50,8 +50,8 @@ counts.original <- cbind(str_split_fixed(counts.original[,1], ",", n=3), counts.
 colnames(counts.original)[1:3] <- c("ensembl_id_version", "gene_symbol", "gene_product")
 
 # Remove human genes
-human_genes_index <- unlist(lapply(strsplit(counts.original$ensembl, "M"), "[[",1))=="ENS"
-counts.original <- counts.original[human_genes_index,]
+mouse_genes_index <- unlist(lapply(strsplit(counts.original$ensembl, "M"), "[[",1))=="ENS"
+counts.original <- counts.original[mouse_genes_index,]
 
 # Select protein_coding genes
 counts <- counts.original %>%
@@ -286,7 +286,7 @@ print(ggplot(ciberlong %>%
 library(MCPcounter)
 
 # Run MCPcounter
-mcpres <- MCPcounter.estimate(NormByTPM,
+mcpres <- MCPcounter.estimate(TMM,
                     featuresType="HUGO_symbols")
 
 # Add group info
