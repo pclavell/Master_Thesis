@@ -9,6 +9,9 @@ hallmark <- fgsea::gmtPathways("C:/Users/paucl/Documents/TFM/dades/collectionset
 
 nice_names <- read.csv("C:/Users/paucl/Documents/TFM/dades/collectionsets_msigdb/beautiful_names.csv")
 names(hallmark) <- as.vector(nice_names[,2])
+
+# load packages
+library(tidyverse)
 ```
 
 
@@ -63,7 +66,7 @@ run.GSEA <- function(ranks, title, loaded_collection ,collection_path, output_pa
   if(missing(loaded_collection)){
   loaded_collection <- gmtPathways(collection_path)
   print("Loaded collection")}
-  
+  print("PreLoaded collection")
   
   # Perform GSEA 
   fgseaRes <- fgsea(pathways = loaded_collection, stats=ranks)
@@ -103,9 +106,10 @@ run.GSEA <- function(ranks, title, loaded_collection ,collection_path, output_pa
   
   print(p)
   if(save==T){
-  ggsave(output_path, p, width = width, height = height, units="in", limitsize = FALSE)
+    print("Saving plot")
+    ggsave(output_path, p, width = width, height = height, units="in", limitsize = FALSE)
   
-  print(paste0("Your plot has been saved in ", output_path))}
+    print(paste0("Your plot has been saved in ", output_path))}
   return(fgseaResTidy)}
 
 #------------------------------------------------------------------------------
@@ -180,7 +184,7 @@ for(contrast in contrast.vector){
            loaded_collection= hallmark, 
            output_path = paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
                                 contrast,"/", "GSEA_", contrast_names[contrast], ".png"),
-           save=T,
+           save=F,
            width= 5,
            height= 4)
   # readr::write_csv(as.data.frame(gsea),
