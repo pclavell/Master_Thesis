@@ -433,7 +433,7 @@ for(contrast in contrast.vector){
 }
 ```
 
-```{r}
+```{r VENN}
 # Retrieve DEGs from every contrast
 degs.vector.names <- c()
 alldegs.vector.names <- c()
@@ -462,7 +462,8 @@ for(i in 1:4){
 
 symbols.list <- symbols.list[c(1,3,4)]
 
-# Venn Diagram
+## Venn Diagram
+# all contrasts
 library(VennDiagram)
 venn.diagram(symbols.list, 
              filename = "C:/Users/paucl/Documents/TFM/DEA/results/VennALL.png", 
@@ -481,14 +482,67 @@ venn.diagram(symbols.list,
              lwd = 2,
              lty = 'blank')
 
+# UP in drug_sensitive and resistance_olaparib
+venn.diagram(list(UP_DEGS_drug_sensitive, UP_DEGS_resistance_olaparib), 
+             filename = "C:/Users/paucl/Documents/TFM/DEA/results/VennUP2.png", 
+             category.names = c("T vs C\n(sensitive)", "S vs R\n(treated)"),
+             fill = c("#999999", "#56B4E9"),
+             print.mode =c("raw"),
+             height = 5,
+             width = 5,
+             units = "in",
+             cex = 3,
+             fontface = "italic",
+            # Set names
+             cat.cex = 2,
+             cat.fontface = "bold",
+             cat.dist = c(-0.03,-0.075),
+             lwd = 2,
+             lty = 'blank')
+
+# DOWN in drug_sensitive and resistance_olaparib
+venn.diagram(list(DOWN_DEGS_drug_sensitive, DOWN_DEGS_resistance_olaparib), 
+             filename = "C:/Users/paucl/Documents/TFM/DEA/results/VennDOWN2.png", 
+             category.names = c("T vs C\n(sensitive)", "S vs R\n(treated)"),
+             fill = c("#999999", "#56B4E9"),
+             print.mode =c("raw"),
+             height = 5,
+             width = 5,
+             units = "in",
+             cex = 3,
+             fontface = "italic",
+            # Set names
+             cat.cex = 2,
+             cat.fontface = "bold",
+             cat.dist = c(-0.03,-0.075),
+             lwd = 2,
+             lty = 'blank')
 ```
 
 ```{r}
-# Heatmap
-column_ha <- HeatmapAnnotation(Group = phenodata$Group)
+# Heatmap of all DEGS
+allDEGS <- c(DEGS_resistance_control, DEGS_resistance_olaparib, DEGS_drug_sensitive, DEGS_drug_resistant)
+allDEGS <- unique(allDEGS)[!is.na(unique(allDEGS))]
 
-input <- t(scale(t(na.omit(as.data.frame(TMM)[selectedGenes,]))))
-Heatmap(input, top_annotation=column_ha)
+## Heatmap
+# Prepare annotation
+color.pdx <- randomColor(length(levels(phenodata$Original_PDX)))
+names(color.pdx) <- levels(phenodata$Original_PDX)
+color.volume <- circlize::colorRamp2(c(-100, 100), c("white", "black"))
+column_ha <- HeatmapAnnotation(`Tumor Volume Change` = phenodata$`% Volume change`, 
+                               Group = phenodata$Group,
+                               `Original Tumour` = phenodata$Original_PDX, 
+                               col = list(`Tumor Volume Change` = color.volume,
+                                          `Original Tumour` = color.pdx,
+                                          Group = c("Sensitive Control" = "green",
+                                                    "Sensitive Treated" = "dark green",
+                                                    "Resistant Control" = "red",
+                                                    "Resistant Treated" = "dark red")),
+                               show_legend = c(TRUE, TRUE, FALSE))
+heatmap.degs <- Heatmap(t(scale(t(TMM[allDEGS,]))), top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Expression"))
+png("C:/Users/paucl/Documents/TFM/DEA/results/HEATMAP_all_DEGs.png", width=12, height=5, units="in", res=1024)
+heatmap.degs # plot
+dev.off()
 ```
 
 
