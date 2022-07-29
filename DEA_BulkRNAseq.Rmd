@@ -57,6 +57,13 @@ First column, containing gene metadata is splitted into ensembl_id, gene_symbol 
 Samples match between phenodata and count table is checked (and in the same order)
 
 ```{r gene_metadata_creation}
+## Remove PAR_Y genes to prevent future problems of duplicated symbols
+# First check that there are no counts assigned
+sum(rowSums(counts.original[grep("*_PAR_*", counts.original$id_gene.gene_name.gene_type), -1]))
+counts.original <- counts.original[-grep("*_PAR_*",
+                                         counts.original$id_gene.gene_name.gene_type),]
+
+
 # Split gene information from first column in counts
 counts.original <- cbind(str_split_fixed(counts.original[,1], ",", n=3), counts.original)[,-4]
 
@@ -119,8 +126,6 @@ nsamples <- nrow(phenodata)
 ```
 
 
-After cheking that there are no NA, only those genes with more than 10 counts in at least 3 samples are kept. (Reisländer et al 2019)
-
 ```{r}
 ## Use noisyr package to remove noise from the count table (low counts, basically)
 
@@ -159,10 +164,17 @@ ggplot2::ggplot(plotdf.line) +
 sum(!complete.cases(counts))
 
 # Save filtered counts
-readr::write_csv(counts,
-                 paste0("C:/Users/paucl/Documents/TFM/DEA/human_protein_counts_noisyrdensity.csv"),
-                 col_names=T)
+write.csv(counts,
+          "C:/Users/paucl/Documents/TFM/DEA/preprocessing/human_protein_counts_noisyrdensity.csv",
+          row.names=T)
 ```
+
+
+```{r}
+# # Load filtered counts
+# counts <- read.csv("C:/Users/paucl/Documents/TFM/DEA/preprocessing/human_protein_counts_noisyrdensity.csv", row.names = 1)
+```
+
 
 ```{r}
 ## Data exploration
@@ -170,7 +182,7 @@ readr::write_csv(counts,
 lib.size <- colSums(counts, na.rm=T) #Total number of counts of each sample
 
 # Check distributions by response
-boxplot(lib.size~as.factor(phenodata$"Group"),col=as.factor(phenodata$"Group"))
+boxplot(lib.size~as.factor(phenodata$"Group"), col=as.factor(phenodata$"Group"))
 
 par(mar=c(10,5,2,2)+.1)
 barplot(lib.size, las=2, col=as.factor(phenodata$"Group"))
@@ -364,7 +376,7 @@ for(contrast in contrast.vector){
   assign(paste0("DEresults.", contrast),
          read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
                           contrast, "/toptable_",
-                          contrast_names[contrast],".csv")))}
+                          contrast_names[contrast],"noisyrdensity.csv")))}
 
 # Volcanos
 for(contrast in contrast.vector){
