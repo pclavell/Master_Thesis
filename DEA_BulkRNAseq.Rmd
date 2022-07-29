@@ -13,7 +13,7 @@ knitr::opts_chunk$set(cache = T, warning=F, message=F)
 ```{r packages_preparation}
 setwd("C:/Users/paucl/Documents/TFM/DEA")
 
-packages <- c("dplyr","EDASeq", "stringr", "ggbio", "ggplot2","limma", "EnhancedVolcano", "biomaRt", "edgeR", "tweeDEseq", "clusterProfiler","DESeq2", "pheatmap", "fgsea", "noisyr")
+packages <- c("dplyr","EDASeq", "stringr", "ggbio", "ggplot2","limma", "EnhancedVolcano", "biomaRt", "edgeR", "tweeDEseq", "clusterProfiler","DESeq2", "pheatmap", "fgsea", "noisyr", "ComplexHeatmap", "RColorBrewer")
 lapply(packages, library, character.only = TRUE)
 ```
 
@@ -47,6 +47,9 @@ phenodata.original[,cols] <- lapply(phenodata.original[cols], factor)
 # Change reference level
 phenodata.original$Drug <- relevel(phenodata.original$Drug, ref="control")
 phenodata.original$Response <- relevel(phenodata.original$Response, ref="Sensitive")
+
+# Change levels names
+phenodata.original$Drug <- ifelse(phenodata.original$Drug=="control", "Control", "Treated")
 ```
 
 First column, containing gene metadata is splitted into ensembl_id, gene_symbol and gene_product type. Then mouse genes are removed and remaining genes are filtered by protein_coding genes. Afterwards a separate table with gene metadata is created from the information in counts table (which now contains only counts).
@@ -93,7 +96,7 @@ Data is subsetted by
 ```{r subsetting}
 # Create variable group
 phenodata <- phenodata.original%>%
-  mutate(Group=as.factor(paste(Response, Drug, sep="_")))
+  mutate(Group=as.factor(paste(Response, Drug, sep=" ")))
 ```
 
 The sample names are changed to PDX model name.
@@ -102,7 +105,10 @@ The sample names are changed to PDX model name.
 # Change names of samples
 new.names <- c()
 for(sample in colnames(counts)){
-  new.names <- c(new.names,paste0(phenodata.original[phenodata.original[,2]==sample,4], "_",phenodata.original[phenodata.original[,2]==sample,"Drug"]))}
+  new.names <- c(new.names,
+                 paste0(phenodata.original[phenodata.original[,2]==sample,4],
+                        "_", 
+                        ifelse(phenodata.original[phenodata.original[,2]==sample,"Drug"]=="Control", "Ctl", "Trt")))}
 
 # Assign the names
 colnames(counts) <- new.names
@@ -116,7 +122,7 @@ nsamples <- nrow(phenodata)
 After cheking that there are no NA, only those genes with more than 10 counts in at least 3 samples are kept. (Reisländer et al 2019)
 
 ```{r}
-## Use noisyr package to remove noise from the count table
+## Use noisyr package to remove noise from the count table (low counts, basically)
 
 # 1st: obtention of expression summary 
 similarity <- calculate_expression_similarity_counts(counts)
@@ -125,9 +131,8 @@ similarity <- calculate_expression_similarity_counts(counts)
 thresholds <- calculate_noise_threshold(similarity,
                                         method.chosen="Density_based-No_normalisation")
 # 3rd: remove genes under the threshold
-counts2 <- remove_noise_from_matrix(counts,
+counts <- remove_noise_from_matrix(counts,
                                     thresholds)
-counts <- counts2
 
 # Plot abundance-correlation relation
 plotlist <- plot_expression_similarity(similarity)
@@ -152,6 +157,11 @@ ggplot2::ggplot(plotdf.line) +
 
 # Check that there are no NA
 sum(!complete.cases(counts))
+
+# Save filtered counts
+readr::write_csv(counts,
+                 paste0("C:/Users/paucl/Documents/TFM/DEA/human_protein_counts_noisyrdensity.csv"),
+                 col_names=T)
 ```
 
 ```{r}
@@ -169,7 +179,7 @@ title("Library size per sample by response")
 ```
 
 ```{r}
-# Compute CPM 
+# Compute TMM 
 TMM <- normalizeCounts(counts, method="TMM")
 
 rownames(TMM) <- gene_metadata[rownames(TMM), "gene_symbol"]
@@ -190,49 +200,85 @@ Unsupervised data exploration with the 500 genes with higher variance across sam
 - Heatmap
 
 ```{r exploration}
-# Compute the variance of each gene across samples
+## PCA 
+pcaResults <- prcomp(t(TMM))
+plot(pcaResults) # PC % of variability
+
+# PCA colored by Group
+factoextra::fviz_pca_ind(pcaResults, 
+                         geom.ind = c("point"), 
+                         repel = T, 
+                         habillage = phenodata$Group, 
+                         max.overlaps = 5)+
+  ggtitle(NULL)+
+  theme_classic()+
+  theme(legend.position = c(0.7, 0.85),
+        legend.background = element_rect(fill = "white",
+                                         size = 0.5, 
+                                         linetype = "solid",
+                                         color = "black"))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/preprocessing/PCAgroups",".png"),
+        units="in", limitsize = FALSE, width=4, height=5)
+# PCA colored by Original PDX
+factoextra::fviz_pca_ind(pcaResults, 
+                         geom.ind = c("point"), 
+                         repel = T, 
+                         habillage = phenodata$Original_PDX, 
+                         max.overlaps = 5)+
+  ggtitle(NULL)+
+  theme_classic()+
+  theme(legend.background = element_rect(fill = "white",
+                                         size = 0.5, 
+                                         linetype = "solid",
+                                         color = "black"))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/preprocessing/PCApdx",".png"),
+        units="in", limitsize = FALSE, width=6, height=5)
+
+
+## Compute the variance of each gene across samples and sort them to select top 100 genes
 V <- apply(TMM, 1, var)
+selectedGenes <- names(V[order(V, decreasing = T)][1:100])
 
-# Sort the results by variance in decreasing order and select the top 500 genes 
-selectedGenes <- names(V[order(V, decreasing = T)][1:500])
 
+## Plot clustering tree
 clust.cor.ward <- hclust(dist(t(TMM[selectedGenes,])),method="average")
 plot(clust.cor.ward, main="hierarchical clustering", hang=-1,cex=0.8)
 
-# PCA #
-pcaResults <- prcomp(t(TMM))
-plot(pcaResults) # PC % of variability
-factoextra::fviz_pca_ind(pcaResults, geom.ind=c("point"), repel=T, habillage= phenodata$Response, max.overlaps=5)
-factoextra::fviz_pca_ind(pcaResults, geom=c("point"), habillage= factor(phenodata$Original_PDX))
 
-# Pearson correlation pair-wise
-corr_coeff <- cor(TMM, method = "pearson")
-pheatmap::pheatmap(corr_coeff, main = "Pearson correlation")
+## Pearson correlation pair-wise
+corr_coeff <- cor(TMM[selectedGenes,], method = "pearson")
 
 
-annotation_col <- as.data.frame(phenodata[,grepl("Group", colnames(phenodata))])
-colnames(annotation_col) <- "Group"
-rownames(annotation_col) <- rownames(phenodata)
-pheatmap::pheatmap(TMM[selectedGenes,], scale = "row", show_rownames = FALSE, annotation_col=annotation_col)
-# Heatmap
-library(ComplexHeatmap)
-
-column_ha <- HeatmapAnnotation(Group = phenodata$Group, )
-
-input <- t(scale(t(na.omit(as.data.frame(TMM)[selectedGenes,]))))
-Heatmap(input, top_annotation=column_ha)
-
-png("C:/Users/paucl/Documents/TFM/DEA/results/exploratoryHEATMAP.png", width=12, height=5, units="in", res=1024)
-col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
-column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
+## Heatmap
+# Prepare annotation
+color.pdx <- randomColor(length(levels(phenodata$Original_PDX)))
+names(color.pdx) <- levels(phenodata$Original_PDX)
+color.volume <- circlize::colorRamp2(c(-100, 100), c("white", "black"))
+column_ha <- HeatmapAnnotation(`Tumor Volume Change` = phenodata$`% Volume change`, 
                                Group = phenodata$Group,
-                               `Original Tumour` =phenodata$Original_PDX, 
-                               col = list(Volume = col_fun, 
-                                          Group = c("Sensitive_control" = "green", "Sensitive_olaparib" = "dark green", "Resistant_control" = "red", "Resistant_olaparib" = "dark red")))
-input <- t(scale(t(na.omit(as.data.frame(TMM)))))
-Heatmap(input, top_annotation = column_ha, show_column_names=T)
+                               `Original Tumour` = phenodata$Original_PDX, 
+                               col = list(`Tumor Volume Change` = color.volume,
+                                          `Original Tumour` = color.pdx,
+                                          Group = c("Sensitive Control" = "green",
+                                                    "Sensitive Treated" = "dark green",
+                                                    "Resistant Control" = "red",
+                                                    "Resistant Treated" = "dark red")),
+                               show_legend = c(TRUE, TRUE, FALSE))
+# Plot heatmap of correlations
+heatmap.cor <- Heatmap(corr_coeff, top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Correlation"))
+
+# Plot heatmap of 100 genes with the most variance
+heatmap.sel <- Heatmap(t(scale(t(TMM[selectedGenes,]))), top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Expression"))
+
+# Save the heatmaps
+png("C:/Users/paucl/Documents/TFM/DEA/preprocessing/exploratoryHEATMAP_CORRELATIONS.png", width=12, height=5, units="in", res=1024)
+heatmap.cor # plot
 dev.off()
-RColorBrewer 
+
+png("C:/Users/paucl/Documents/TFM/DEA/preprocessing/exploratoryHEATMAP_top100genes.png", width=12, height=5, units="in", res=1024)
+heatmap.sel # plot
+dev.off()
+ 
 ```
 
 Transform some variables to factors.
@@ -249,7 +295,7 @@ phenodata$Original_PDX <- factor(phenodata$Original_PDX)
 design <- as.formula(~Original_PDX+Group)
 
 # Create a DESeq dataset object from the count matrix, the phenodata  and the design
-dds0 <- DESeqDataSetFromMatrix(countData = as.matrix(counts2), 
+dds0 <- DESeqDataSetFromMatrix(countData = as.matrix(counts), 
                                colData = phenodata, 
                                design = design)
 
@@ -260,10 +306,10 @@ dds <- DESeq(dds0)
 # Contrasts
 ```{r CONTRASTS}
 # Define contrasts
-drug_sensitive <- c("Group", 'Sensitive_olaparib', 'Sensitive_control')
-drug_resistant <- c("Group", 'Resistant_olaparib', 'Resistant_control')
-resistance_control <- c("Group", 'Resistant_control', 'Sensitive_control')
-resistance_olaparib <- c("Group", 'Sensitive_olaparib','Resistant_olaparib')
+drug_sensitive <- c("Group", 'Sensitive Treated', 'Sensitive Control')
+drug_resistant <- c("Group", 'Resistant Treated', 'Resistant Control')
+resistance_control <- c("Group", 'Resistant Control', 'Sensitive Control')
+resistance_olaparib <- c("Group", 'Sensitive Treated','Resistant Treated')
 
 # Set contrast vector and their names
 contrast.vector <- c("drug_sensitive", "drug_resistant", "resistance_control", "resistance_olaparib")
@@ -439,8 +485,6 @@ venn.diagram(symbols.list,
 
 ```{r}
 # Heatmap
-library(ComplexHeatmap)
-
 column_ha <- HeatmapAnnotation(Group = phenodata$Group)
 
 input <- t(scale(t(na.omit(as.data.frame(TMM)[selectedGenes,]))))
@@ -573,7 +617,7 @@ col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
 column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
                                Group = phenodata$Group,
                                col = list(Volume = col_fun, 
-                                          Group = c("Sensitive_control" = "green", "Sensitive_olaparib" = "dark green", "Resistant_control" = "red", "Resistant_olaparib" = "dark red")))
+                                          Group = c("Sensitive Control" = "green", "Sensitive Treated" = "dark green", "Resistant Control" = "red", "Resistant Treated" = "dark red")))
 input <- t(scale(t(na.omit(as.data.frame(TMM)[c("GPALPP1","POLR2J2"),])))) #"GPALPP1","POLR2J2"
 Heatmap(input, top_annotation = column_ha, show_column_names=T)
 dev.off()
