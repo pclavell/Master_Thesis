@@ -13,7 +13,7 @@ knitr::opts_chunk$set(cache = T, warning=F, message=F)
 ```{r packages_preparation}
 setwd("C:/Users/paucl/Documents/TFM/DEA")
 
-packages <- c("dplyr","EDASeq", "stringr", "ggbio", "ggplot2","limma", "EnhancedVolcano", "biomaRt", "edgeR", "tweeDEseq", "clusterProfiler","DESeq2", "pheatmap", "fgsea")
+packages <- c("dplyr","EDASeq", "stringr", "ggbio", "ggplot2","limma", "EnhancedVolcano", "biomaRt", "edgeR", "tweeDEseq", "clusterProfiler","DESeq2", "pheatmap", "fgsea", "noisyr")
 lapply(packages, library, character.only = TRUE)
 ```
 
@@ -116,20 +116,43 @@ nsamples <- nrow(phenodata)
 After cheking that there are no NA, only those genes with more than 10 counts in at least 3 samples are kept. (Reisländer et al 2019)
 
 ```{r}
+## Use noisyr package to remove noise from the count table
+
+# 1st: obtention of expression summary 
+similarity <- calculate_expression_similarity_counts(counts)
+
+# 2nd: calculate threshold
+thresholds <- calculate_noise_threshold(similarity,
+                                        method.chosen="Density_based-No_normalisation")
+# 3rd: remove genes under the threshold
+counts2 <- remove_noise_from_matrix(counts,
+                                    thresholds)
+counts <- counts2
+
+# Plot abundance-correlation relation
+plotlist <- plot_expression_similarity(similarity)
+plotdf.line <- tibble::tibble()
+for(i in 1:68){
+  lineid <- i * 2 - 1
+  plotdf.line <- rbind(
+    plotdf.line, 
+    dplyr::mutate(plotlist[[lineid]]$data,
+                  Sample=colnames(counts)[i]))
+}
+ggplot2::ggplot(plotdf.line) +
+    ggplot2::theme_minimal() + 
+    ggplot2::geom_line(ggplot2::aes(x=x, y=y, colour=Sample)) +
+    ggplot2::geom_smooth(ggplot2::aes(x,y,colour=Sample), method="loess",
+                         formula= y ~ x, span=0.1) +
+    ggplot2::ylim(0:1) +
+    ggplot2::xlab("log2(expression)") +
+    ggplot2::ylab("Pearson correlation") +
+    ggplot2::geom_hline(yintercept=0.25, color="black")+
+  theme(legend.position = "none")
+
 # Check that there are no NA
-non_na <- complete.cases(counts)
-sum(!non_na)# should be 0
-
-
-# # Remove genes with less than 10 counts in more than 3 samples (Reisländer et al 2019)
-drop.genes <- rowSums(counts<10) > 2 #dim(counts)[2]/5
-summary(drop.genes)
-
-# Subset 
-counts <- counts[non_na & !drop.genes,]
+sum(!complete.cases(counts))
 ```
-
-Library size is computed by summarizing the total number of counts per sample and library sizes are explored by a barplot and a boxplot.
 
 ```{r}
 ## Data exploration
@@ -144,8 +167,6 @@ barplot(lib.size, las=2, col=as.factor(phenodata$"Group"))
 legend("topright", levels(phenodata$Group), fill=1:4)
 title("Library size per sample by response")
 ```
-
-TMM normalization is computed and RLE is plotted.
 
 ```{r}
 # Compute CPM 
@@ -181,7 +202,7 @@ plot(clust.cor.ward, main="hierarchical clustering", hang=-1,cex=0.8)
 # PCA #
 pcaResults <- prcomp(t(TMM))
 plot(pcaResults) # PC % of variability
-factoextra::fviz_pca_ind(pcaResults, geom.ind=c("point"), repel=T, habillage= phenodata$"Group", max.overlaps=5)
+factoextra::fviz_pca_ind(pcaResults, geom.ind=c("point"), repel=T, habillage= phenodata$Response, max.overlaps=5)
 factoextra::fviz_pca_ind(pcaResults, geom=c("point"), habillage= factor(phenodata$Original_PDX))
 
 # Pearson correlation pair-wise
@@ -193,6 +214,25 @@ annotation_col <- as.data.frame(phenodata[,grepl("Group", colnames(phenodata))])
 colnames(annotation_col) <- "Group"
 rownames(annotation_col) <- rownames(phenodata)
 pheatmap::pheatmap(TMM[selectedGenes,], scale = "row", show_rownames = FALSE, annotation_col=annotation_col)
+# Heatmap
+library(ComplexHeatmap)
+
+column_ha <- HeatmapAnnotation(Group = phenodata$Group, )
+
+input <- t(scale(t(na.omit(as.data.frame(TMM)[selectedGenes,]))))
+Heatmap(input, top_annotation=column_ha)
+
+png("C:/Users/paucl/Documents/TFM/DEA/results/exploratoryHEATMAP.png", width=12, height=5, units="in", res=1024)
+col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
+column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
+                               Group = phenodata$Group,
+                               `Original Tumour` =phenodata$Original_PDX, 
+                               col = list(Volume = col_fun, 
+                                          Group = c("Sensitive_control" = "green", "Sensitive_olaparib" = "dark green", "Resistant_control" = "red", "Resistant_olaparib" = "dark red")))
+input <- t(scale(t(na.omit(as.data.frame(TMM)))))
+Heatmap(input, top_annotation = column_ha, show_column_names=T)
+dev.off()
+RColorBrewer 
 ```
 
 Transform some variables to factors.
@@ -209,7 +249,7 @@ phenodata$Original_PDX <- factor(phenodata$Original_PDX)
 design <- as.formula(~Original_PDX+Group)
 
 # Create a DESeq dataset object from the count matrix, the phenodata  and the design
-dds0 <- DESeqDataSetFromMatrix(countData = as.matrix(counts), 
+dds0 <- DESeqDataSetFromMatrix(countData = as.matrix(counts2), 
                                colData = phenodata, 
                                design = design)
 
@@ -256,11 +296,11 @@ for(contrast in contrast.vector){
                   pCutoff = 0.05,
                   FCcutoff = 0.585,
                   title =  contrast))
-  # readr::write_csv(as.data.frame(get(paste0("DEresults.",contrast))),
-  #                paste0("C:/Users/paucl/Documents/TFM/DEA/results/", 
-  #                       contrast, "/toptable_", 
-  #                       contrast_names[contrast],".csv"),
-  #                col_names=T)
+  readr::write_csv(as.data.frame(get(paste0("DEresults.",contrast))),
+                 paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
+                        contrast, "/toptable_",
+                        contrast_names[contrast], "noisyrdensity",".csv"),
+                 col_names=T)
 }
 ```
 
@@ -321,13 +361,12 @@ for(contrast in contrast.vector){
     theme_classic()+
     theme(legend.position="top",
           legend.justification='left')+
-    scale_fill_discrete(name="",labels=expression("IFN-"~alpha ~ "pathway"))+
     geom_hline(yintercept = -log10(0.05), linetype = 2)+
     geom_vline(xintercept = 0.585, linetype = 2)+
     geom_vline(xintercept = -0.585, linetype = 2)+
     theme(axis.line = element_line(size=0.7),
           axis.ticks = element_line(size=0.7))
-    if(dim(size)[1]!=0){
+    if(dim(text)[1]!=0){
       p <- p+ geom_text_repel(data = text,
                   aes(x = log2FoldChange,
                       y = -log10(padj),
@@ -336,8 +375,8 @@ for(contrast in contrast.vector){
                  min.segment.length = 0.3)}
   print(p)
   ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/results/", contrast,
-              "/", "VOLCANO_", contrast_names[contrast] ,".png"),
-       units="in", limitsize = FALSE, width=4, height=5)
+               "/", "VOLCANO_", contrast_names[contrast] , "noisyrdensity",".png"),
+        units="in", limitsize = FALSE, width=4, height=5)
   }
 
 # Number of significant genes
