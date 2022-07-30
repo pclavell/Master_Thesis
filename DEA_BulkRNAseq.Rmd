@@ -263,13 +263,13 @@ corr_coeff <- cor(TMM[selectedGenes,], method = "pearson")
 
 ## Heatmap
 # Prepare annotation
-color.pdx <- randomColor(length(levels(phenodata$Original_PDX)))
+color.pdx <- randomcoloR::randomColor(length(levels(phenodata$Original_PDX)))
 names(color.pdx) <- levels(phenodata$Original_PDX)
 color.volume <- circlize::colorRamp2(c(-100, 100), c("white", "black"))
-column_ha <- HeatmapAnnotation(`Tumor Volume Change` = phenodata$`% Volume change`, 
+column_ha <- HeatmapAnnotation(`% Tumor Volume Change` = phenodata$`% Volume change`, 
                                Group = phenodata$Group,
                                `Original Tumour` = phenodata$Original_PDX, 
-                               col = list(`Tumor Volume Change` = color.volume,
+                               col = list(`% Tumor Volume Change` = color.volume,
                                           `Original Tumour` = color.pdx,
                                           Group = c("Sensitive Control" = "green",
                                                     "Sensitive Treated" = "dark green",
@@ -378,6 +378,10 @@ for(contrast in contrast.vector){
                           contrast, "/toptable_",
                           contrast_names[contrast],"noisyrdensity.csv")))}
 
+
+# ACABAR D'ARREGLAR NOMS DELS EIXOS PER VEURE ELS CONTRASTOS I FER ELS PUNTS SIGNIFICATIUS GRANS
+fancynames <- c("Treated vs Control (sensitive)", "Treated vs Control (resistant)", "Sensitive vs Resistant (control)", "Sensitive vs Resistant (treated)")
+names(fancynames) <- contrast.vector
 # Volcanos
 for(contrast in contrast.vector){
   # set DEresults table
@@ -407,18 +411,21 @@ for(contrast in contrast.vector){
                aes(x = log2FoldChange,
                    y = -log10(padj)),
                color = "red",
-               size= 0.8)+
+               size= 1.3)+
     # blue points
     geom_point(data = downcolor, 
                aes(x = log2FoldChange,
                    y = -log10(padj)),
                color = "blue",
-               size= 0.5)+
-    labs(x = bquote(bold(.(Log[2] ~ FC))),
+               size= 1.3)+
+    # labs(x = bold(expression(Log["2"]~FC)),
+    #      y = bquote(bold(.(-Log[10] ~ FDR))))+
+    labs(x = bquote(bold(.(Log[2] ~ FC)~bold(.(fancynames[contrast])))),
          y = bquote(bold(.(-Log[10] ~ FDR))))+
     theme_classic()+
     theme(legend.position="top",
-          legend.justification='left')+
+          legend.justification='left',
+          axis.title.x = element_text(face="bold"))+
     geom_hline(yintercept = -log10(0.05), linetype = 2)+
     geom_vline(xintercept = 0.585, linetype = 2)+
     geom_vline(xintercept = -0.585, linetype = 2)+
@@ -513,10 +520,10 @@ venn.diagram(list(UP_DEGS_drug_sensitive, UP_DEGS_resistance_olaparib),
              lty = 'blank')
 
 # DOWN in drug_sensitive and resistance_olaparib
-venn.diagram(list(DOWN_DEGS_drug_sensitive, DOWN_DEGS_resistance_olaparib), 
+venn.diagram(list(DOWN_DEGS_resistance_olaparib, DOWN_DEGS_drug_sensitive), 
              filename = "C:/Users/paucl/Documents/TFM/DEA/results/VennDOWN2.png", 
-             category.names = c("T vs C\n(sensitive)", "S vs R\n(treated)"),
-             fill = c("#999999", "#56B4E9"),
+             category.names = c("S vs R\n(treated)", "T vs C\n(sensitive)"),
+             fill = c("#56B4E9","#999999"),
              print.mode =c("raw"),
              height = 5,
              width = 5,
@@ -527,8 +534,10 @@ venn.diagram(list(DOWN_DEGS_drug_sensitive, DOWN_DEGS_resistance_olaparib),
              cat.cex = 2,
              cat.fontface = "bold",
              cat.dist = c(-0.03,-0.075),
+            cat.pos= c(200+180, 145+180),#clock location of category labels
              lwd = 2,
-             lty = 'blank')
+             lty = 'blank',
+             rotation.degree=180)#rotate to have each contrast in the same order
 ```
 
 ```{r}
