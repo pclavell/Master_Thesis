@@ -89,7 +89,7 @@ run.GSEA <- function(ranks, title, loaded_collection ,collection_path, output_pa
   p <-ggplot(fgseaResTidy[fgseaResTidy$padj<0.05,], aes(factor(reorder(pathway, NES)), NES)) +
         geom_col(aes(fill = padj)) +
         coord_flip() +
-        labs(x ="", y="Normalized Enrichment Score",
+        labs(x ="", y=bquote(bold(.(~NES)~bold(.(fancynames[contrast])))),
              title = "")+
         theme_classic()+
         theme(legend.key.size = unit(0.2, 'in'),
@@ -163,12 +163,16 @@ contrast.vector <- c("drug_sensitive", "drug_resistant", "resistance_control", "
 contrast_names <- c("olaparib_vs_control_allsensitive", "olaparib_vs_control_allresistant", "sensitive_vs_resistant_allcontrol", "sensitive_vs_resistant_alltreated")
 names(contrast_names) <- contrast.vector
 
+# Axis names
+fancynames <- c("Treated vs Control (sensitive)", "Treated vs Control (resistant)", "Sensitive vs Resistant (control)", "Sensitive vs Resistant (treated)")
+names(fancynames) <- contrast.vector
+
 # Load DEresults
 for(contrast in contrast.vector){
   assign(paste0("DEresults.", contrast),
          read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
                           contrast, "/toptable_",
-                          contrast_names[contrast],".csv")))}
+                          contrast_names[contrast],"noisyrdensity.csv")))}
 
 # GSEA workflow: gene ranking and plotting
 for(contrast in contrast.vector){
@@ -183,15 +187,15 @@ for(contrast in contrast.vector){
            title="Hallmark",
            loaded_collection= hallmark, 
            output_path = paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
-                                contrast,"/", "GSEA_", contrast_names[contrast], ".png"),
-           save=F,
+                                contrast,"/", "GSEA_", contrast_names[contrast], "noisyrdensity.png"),
+           save=T,
            width= 5,
            height= 4)
-  # readr::write_csv(as.data.frame(gsea),
-  #                paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
-  #                       contrast, "/GSEAres_",
-  #                       contrast_names[contrast],".csv"),
-  #                col_names=T)
+  readr::write_csv(as.data.frame(gsea),
+                 paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
+                        contrast, "/GSEAres_",
+                        contrast_names[contrast],"noisyrdensity.csv"),
+                 col_names=T)
   }
 ```
 
@@ -348,7 +352,7 @@ for(contrast in contrast.vector){
          read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/", 
                          contrast, 
                          "/", "GSEAres_",
-                         contrast_names[contrast],".csv")))}
+                         contrast_names[contrast],"noisyrdensity.csv")))}
 
 # Prepare data.frame
 GSEAall <- c(rep(NA, 50))
@@ -374,8 +378,9 @@ GSEAlong <- pivot_longer(GSEAsub, c(2,4,6,8), "Contrast", values_to = "NES")
 GSEAlong <- pivot_longer(GSEAlong, 2:5, "Contrast2", values_to = "FDR")
 # Plot
 ggplot(GSEAlong, aes(x = Contrast, y = NES))+
-  geom_point(aes(color = pathway))+
-  geom_line(aes(group = pathway, color=pathway))
+  geom_point(aes(color = pathway, size= 1/FDR))+
+  geom_line(aes(group = pathway, color=pathway, size= 1/FDR))+
+  theme(legend.position = "none")
 
 ordenar la suma dels abs(NES)
 
