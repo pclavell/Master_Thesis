@@ -13,8 +13,8 @@ library(ggpubr)
 library(ggpmisc)
 
 # load top tables
-sensitives <- read.csv("C:/Users/paucl/Documents/TFM/DEA/results/drug_sensitive/toptable_olaparib_vs_control_allsensitive.csv")
-resistants <- read.csv("C:/Users/paucl/Documents/TFM/DEA/results/drug_resistant/toptable_olaparib_vs_control_allresistant.csv") 
+sensitives <- read.csv("C:/Users/paucl/Documents/TFM/DEA/results/drug_sensitive/toptable_olaparib_vs_control_allsensitivenoisyrdensity.csv")
+resistants <- read.csv("C:/Users/paucl/Documents/TFM/DEA/results/drug_resistant/toptable_olaparib_vs_control_allresistantnoisyrdensity.csv") 
 
 # load hallmark
 hallmark <- fgsea::gmtPathways("C:/Users/paucl/Documents/TFM/dades/collectionsets_msigdb/h.all.v7.5.1.symbols.gmt")
@@ -152,7 +152,7 @@ for(contrast in contrast.list){
   assign(paste0("GSEA.", contrast),
          read.csv(paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
                           contrast, "/GSEAres_",
-                          contrast_names[contrast],".csv")))}
+                          contrast_names[contrast],"noisyrdensity.csv")))}
 meanlogFC <- meanlogFC[order(meanlogFC$rowname),]
 meanlogFC$GSEA <- c(ifelse(GSEA.drug_sensitive[order(GSEA.drug_sensitive$pathway), "padj"] < 0.05, 
                          ifelse(GSEA.drug_resistant[order(GSEA.drug_resistant$pathway),
@@ -170,62 +170,7 @@ meanlogFC$plotnames <- ifelse(meanlogFC$wilcox.p.signif == "< 0.05", meanlogFC$r
 
 
 ```{r}
-
-# 
-# 
-# 
-# 
-# ggplot(meanlogFC, 
-#        aes(x = sensitive, 
-#            y = resistant,
-#            label = plotnames))+
-#   stat_smooth(method = "lm", se=F, color="black", linetype="dashed")+
-#   geom_point(aes(size =`Genes in set`,
-#                  #color = wilcox.p.signif,
-#                  color = GSEA,
-#                  shape = wilcox.p.signif),
-#              alpha=0.7)+
-#   # add text
-#   geom_text_repel(box.padding = 0.5, 
-#                   max.overlaps = Inf,
-#                   size=3)+
-#   # scale_color_manual(values= c("< 0.05" = "Red",
-#   #                              "ns" = "Grey"))+
-#   scale_color_manual(values = c("Sensitive & Resistant" = "#8500AC",
-#                               "Sensitive" = "#1984c5",
-#                               "Resistant" = "#c23728",
-#                               "None" = "Grey"))+
-#   scale_shape_manual(values= c("< 0.05" = 17,
-#                                "ns" = 16))+
-#   theme_classic()+
-#   geom_hline(yintercept=0, color="darkgrey", linetype="dotted") +
-#   geom_vline(xintercept=0, color="darkgrey", linetype="dotted") +
-#   geom_abline(slope=1, size=1, color="grey", linetype="dashed", inherit.aes=F)+
-#   scale_size_area()+
-#   labs(x = bquote(bold(.(log[2] ~ FC ~ Sensitive ~(olaparib~ vs ~control)))), 
-#        y = bquote(bold(.(log[2] ~ FC ~ Resistant ~(olaparib~ vs ~control)))),
-#            title = "")+
-#   theme(axis.line = element_line(size=0.7),
-#         axis.ticks = element_line(size=0.7),
-#         axis.text = element_text(face="bold"),
-#         axis.title = element_text(face="bold"))+
-#   stat_regline_equation(aes(label= after_stat(eq.label)),
-#                         data = meanlogFC,
-#                         formula=lm(meanlogFC$resistant ~ meanlogFC$sensitive), 
-#                         label.x.= 0.8 , 
-#                         label.y=0.1)+
-#   stat_poly_eq(aes(label= after_stat(adj.rr.label)), label.x= 0.9, label.y = 0.55)+
-#   guides(colour = guide_legend(override.aes = list(size=5),
-#                                title = "GSEA significant"),
-#          shape = guide_legend(override.aes = list(size=5),
-#                               title= "Differential \n treatment effect \n by response"))
-# ggsave("C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalGSEA.pdf", units="in", limitsize = FALSE, width=10, height=6)
-
-
-```
-```{r}
-# Versió de la violeta
-
+# Two contrasts plot
 ggplot(meanlogFC, 
        aes(x = sensitive, 
            y = resistant,
@@ -235,24 +180,30 @@ ggplot(meanlogFC,
   geom_abline(slope=1, size=0.3, color="black", linetype="dotted", inherit.aes=F)+
   stat_smooth(method = "lm", se=F, color="black", linetype="twodash", size= 1.3)+
   geom_point(aes(size =`Genes in set`,
-                 color = GSEA,
-                 shape = wilcox.p.signif),
-             alpha=0.7)+
+                 fill = GSEA,
+                 color = wilcox.p.signif),
+             alpha=0.7,
+             shape=21,
+             stroke= 1.2)+
   # add text
   geom_text_repel(box.padding = 0.5, 
                   max.overlaps = Inf,
                   size=3)+
-  scale_color_manual(values = c("Sensitive & Resistant" = "#4b9600",
+  scale_fill_manual(values = c("Sensitive & Resistant" = "#4b9600",
                               "Sensitive" = "#1984c5",
                               "Resistant" = "#C309C7",
                               "None" = "darkgrey"),
                      breaks = c("Sensitive", "Resistant", "Sensitive & Resistant", "None"))+
-  scale_shape_manual(values= c("< 0.05" = 17,
+  scale_color_manual(values= c("< 0.05" = 17,
                                "ns" = 16))+
+  guides(fill = guide_legend(override.aes = list(size=5),
+                               title = "GSEA FDR <0.05"),
+         color = guide_legend(override.aes = list(size=5),
+                              title= "Treatment effect \nby response"))+
   theme_classic()+
   scale_size_area()+
-  labs(x = bquote(bold(.(log[2] ~ FC ~ Sensitive ~(olaparib~ vs ~control)))), 
-       y = bquote(bold(.(log[2] ~ FC ~ Resistant ~(olaparib~ vs ~control)))),
+  labs(x = bquote(bold(.(log[2] ~ FC ~Treated~ vs ~Control~ (Sensitive)))), 
+       y = bquote(bold(.(log[2] ~ FC ~Treated~ vs ~Control~ (Resistant)))),
            title = "")+
   theme(axis.line = element_line(size=0.7),
         axis.ticks = element_line(size=0.7),
@@ -265,12 +216,8 @@ ggplot(meanlogFC,
                         label.x.= 0.8 , 
                         label.y=0.1)+
   stat_poly_eq(aes(label= after_stat(adj.rr.label)), label.x= 0.9, label.y = 0.55)+
-  guides(colour = guide_legend(override.aes = list(size=5),
-                               title = "GSEA FDR<0.05"),
-         shape = guide_legend(override.aes = list(size=5),
-                              title= "Differential \n treatment effect \n by response"))+
   coord_fixed(ratio=1)
-ggsave("C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalGSEAnew.png", units="in", limitsize = FALSE, width=10, height=6)
+ggsave("C:/Users/paucl/Documents/TFM/DEA/results/bidimensional/bidimensionalGSEAnew_noisyrdensity.png", units="in", limitsize = FALSE, width=12, height=5)
 ```
 
 
