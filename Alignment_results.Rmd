@@ -1,0 +1,143 @@
+# CNAG
+```{r}
+library(tidyverse)
+# Load CNAG counts
+cnag.original <- read.delim("C:/Users/paucl/Documents/TFM/dades/SERRAVIO_03_04_ProcessatCNAG/COUNTS_by_genes/COUNTS_genes_SERRAVIO_03_04", header=T)
+
+# Load phenodata
+phenodata.original <-as.data.frame(readxl::read_xlsx("C:/Users/paucl/Documents/TFM/dades/20220406SamplesInfo_VS.xlsx", sheet=1, col_names = T, trim_ws=T))
+
+# Change names of samples
+new.names <- c("metadata")
+for(sample in colnames(cnag.original)){
+  new.names <- c(new.names,paste0(phenodata.original[phenodata.original[,2]==sample,4], "_",
+                                  ifelse(phenodata.original[phenodata.original[,2]==sample,"Drug"]=="control", "Ctl", "Trt")))}
+
+# Assign the names
+colnames(cnag.original) <- new.names[-c(2)]
+
+# Split gene information from first column
+cnag.original <- cbind(stringr::str_split_fixed(cnag.original[,1], ",", n=3), cnag.original)[,-4]
+
+# Add names to the new columns
+colnames(cnag.original)[1:3] <- c("ensembl_id", "gene_symbol", "gene_product")
+
+# Filter protein coding genes
+cnag <- cnag.original%>%
+  filter(gene_product == "protein_coding")
+
+# Select human genes
+human_genes_index <- unlist(lapply(strsplit(cnag$ensembl_id, "G"), "[[",1))=="ENS"
+cnag.h <- cnag[human_genes_index,]
+
+
+# From metadata keep only gene symbol
+cnag.h <- cnag.h[,-c(1,3)]
+
+colnames(cnag.h)[1] <- "symbols"
+```
+
+# My alignment
+```{r}
+# Load counts
+mycounts <- read.delim("C:/Users/paucl/Documents/TFM/alignment/salmon.merged.gene_counts.tsv", header=T)
+mycounts <- mycounts[-c(1)]
+
+# Change names of samples
+new.names <- c("symbols")
+for(sample in colnames(mycounts)){
+  new.names <- c(new.names,paste0(phenodata.original[phenodata.original[,2]==sample,4], "_",
+                                  ifelse(phenodata.original[phenodata.original[,2]==sample,"Drug"]=="Control", "Ctl", "Trt")))}
+
+# Assign the names
+colnames(mycounts) <- new.names[-c(2)]
+```
+
+
+```{r}
+# Gene intersection
+length(intersect(mycounts$symbols, cnag.h$symbols)) # 17818
+
+# Subset the samples with my alignment from cnag's
+cnag.h <- cnag.h[colnames(mycounts)]
+
+# Inner join to compare only genes in both sets
+mix <- inner_join(cnag.h, mycounts, by="symbols", suffix=c(".CNAG", ".my"))
+mix <- mix[order(colnames(mix))]
+
+# Correlation without filtering
+corr_raw <- cor(mix[grep(".CNAG", colnames(mix))], mix[grep(".my", colnames(mix))])
+raw_heatmap <- ComplexHeatmap::Heatmap(corr_raw, 
+                        cluster_rows = F, 
+                        cluster_columns = F,
+                        heatmap_legend_param = list(title = "Pearson's\ncorrelation"),
+                        cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.2f", corr_raw[i, j]), x, y, gp = gpar(fontsize = 10))
+}) # diagonal higher than 0.9
+
+# Correlation with filtering in 0 count genes
+mix.z <- mix[rowSums(mix[-grep("symbols", colnames(mix))])>16,]
+corr_filtered <- cor(mix.z[grep(".CNAG", colnames(mix.z))], mix.z[grep(".my", colnames(mix.z))])
+filtered_heatmap <- ComplexHeatmap::Heatmap(corr_filtered, 
+                        cluster_rows = F, 
+                        cluster_columns = F,
+                        heatmap_legend_param = list(title = "Pearson's\ncorrelation"),
+                        cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.2f", corr_filtered[i, j]), x, y, gp = gpar(fontsize = 10))
+}) # diagonal higher than 0.9
+
+## Save heatmaps
+png("C:/Users/paucl/Documents/TFM/alignment/comparison_NOfiltering.png", width=7, height=5, units="in", res=1024)
+raw_heatmap # plot
+dev.off()
+
+png("C:/Users/paucl/Documents/TFM/alignment/comparison_filtered.png", width=7, height=5, units="in", res=1024)
+filtered_heatmap # plot
+dev.off()
+```
+
+# Create plot to compare human and mouse counts from CNAG's dataset
+```{r}
+# Subset Human Genes
+human_genes_index <- unlist(lapply(strsplit(cnag.original$ensembl_id, "G"), "[[",1))=="ENS"
+human.counts <- cnag.original[human_genes_index,]
+
+
+# Subset Mouse Genes
+mouse_genes_index <- unlist(lapply(strsplit(cnag.original$ensembl_id, "M"), "[[",1))=="ENS"
+mouse.counts <- cnag.original[mouse_genes_index,]
+
+# Sum all counts per sample
+Human <- colSums(human.counts[-c(1:3)])
+Mouse <- colSums(mouse.counts[-c(1:3)])
+libraries <- cbind.data.frame(Human, Mouse)
+
+# Compute mouse reads ratio
+mratio <-Mouse/(Human+Mouse)*100
+summary(mratio)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Plot libraries sizes by organism
+libraries$samples <- rownames(libraries)
+mydf <- as.data.frame(libraries) %>% pivot_longer(c(Human, Mouse), "species")
+ggplot(mydf, aes(x= samples, y=value, fill=species))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  theme_classic()+
+  xlab("")+
+  ylab("Library size")+
+  guides(fill=guide_legend(title="Species"))+
+  theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1),
+        legend.position = c(0.9,0.85))+
+  scale_fill_manual(values = c("Human" = "#4b9600",
+                               "Mouse" = "#C309C7"))
+  
+ggsave(paste0("C:/Users/paucl/Documents/TFM/cell_type_deconvolution/results/librarysize.png"),
+        units="in", limitsize = FALSE, width=12, height=7)  
+
+# Have mouse libraries a lower variance?
+var.test(Mouse, Human, alternative= c("less"))
+var(Mouse)
+```
