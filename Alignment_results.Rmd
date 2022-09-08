@@ -47,7 +47,7 @@ mycounts <- mycounts[-c(1)]
 new.names <- c("symbols")
 for(sample in colnames(mycounts)){
   new.names <- c(new.names,paste0(phenodata.original[phenodata.original[,2]==sample,4], "_",
-                                  ifelse(phenodata.original[phenodata.original[,2]==sample,"Drug"]=="Control", "Ctl", "Trt")))}
+                                  ifelse(phenodata.original[phenodata.original[,2]==sample,"Drug"]=="control", "Ctl", "Trt")))}
 
 # Assign the names
 colnames(mycounts) <- new.names[-c(2)]
@@ -62,26 +62,26 @@ length(intersect(mycounts$symbols, cnag.h$symbols)) # 17818
 cnag.h <- cnag.h[colnames(mycounts)]
 
 # Inner join to compare only genes in both sets
-mix <- inner_join(cnag.h, mycounts, by="symbols", suffix=c(".CNAG", ".my"))
+mix <- inner_join(cnag.h, mycounts, by="symbols", suffix=c(".C", ".V"))
 mix <- mix[order(colnames(mix))]
 
 # Correlation without filtering
-corr_raw <- cor(mix[grep(".CNAG", colnames(mix))], mix[grep(".my", colnames(mix))])
+corr_raw <- cor(mix[grep("\\.C", colnames(mix))], mix[grep("\\.V", colnames(mix))])
 raw_heatmap <- ComplexHeatmap::Heatmap(corr_raw, 
                         cluster_rows = F, 
                         cluster_columns = F,
-                        heatmap_legend_param = list(title = "Pearson's\ncorrelation"),
+                        heatmap_legend_param = list(title = "Pearson\ncorrelation"),
                         cell_fun = function(j, i, x, y, width, height, fill) {
         grid.text(sprintf("%.2f", corr_raw[i, j]), x, y, gp = gpar(fontsize = 10))
 }) # diagonal higher than 0.9
 
 # Correlation with filtering in 0 count genes
 mix.z <- mix[rowSums(mix[-grep("symbols", colnames(mix))])>16,]
-corr_filtered <- cor(mix.z[grep(".CNAG", colnames(mix.z))], mix.z[grep(".my", colnames(mix.z))])
+corr_filtered <- cor(mix.z[grep("\\.C", colnames(mix.z))], mix.z[grep("\\.V", colnames(mix.z))])
 filtered_heatmap <- ComplexHeatmap::Heatmap(corr_filtered, 
                         cluster_rows = F, 
                         cluster_columns = F,
-                        heatmap_legend_param = list(title = "Pearson's\ncorrelation"),
+                        heatmap_legend_param = list(title = "Pearson\ncorrelation"),
                         cell_fun = function(j, i, x, y, width, height, fill) {
         grid.text(sprintf("%.2f", corr_filtered[i, j]), x, y, gp = gpar(fontsize = 10))
 }) # diagonal higher than 0.9
@@ -94,6 +94,15 @@ dev.off()
 png("C:/Users/paucl/Documents/TFM/alignment/comparison_filtered.png", width=7, height=5, units="in", res=1024)
 filtered_heatmap # plot
 dev.off()
+
+Heatmap(cor(mycounts[-1]), cluster_rows = F, 
+                        cluster_columns = F)
+Heatmap(cor(mix[grep(".V", colnames(mix))]),cluster_rows = F, 
+                        cluster_columns = F)
+Heatmap(cor(cnag.h[-1]),cluster_rows = F, 
+                        cluster_columns = F)
+Heatmap(cor(mix[grep(".C", colnames(mix))]),cluster_rows = F, 
+                        cluster_columns = F)
 ```
 
 # Create plot to compare human and mouse counts from CNAG's dataset
