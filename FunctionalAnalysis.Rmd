@@ -235,7 +235,7 @@ ggplot(gsea.drug_sensitive[gsea.drug_sensitive$padj<0.05,], aes(factor(reorder(p
                        limits = c(min(gsea.drug_sensitive[gsea.drug_sensitive$padj<0.05,"padj"]), 
                                   max(gsea.drug_sensitive[gsea.drug_sensitive$padj<0.05,"padj"])), 
                        colours=c("#0d3c0c","#166915","#20961e","#d2ead2"))
-ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/results/drug_sensitive","/", "GSEA","olaparib_vs_control_allsensitiveBOLD" ,".png"), units="in", limitsize = FALSE, width=5, height=4)
+ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/results/drug_sensitive","/", "GSEA","olaparib_vs_control_allsensitiveBOLD" ,"noisyrdensity.png"), units="in", limitsize = FALSE, width=5, height=4)
 
 
 # Pathway enrichment plot with ranked genes
@@ -286,18 +286,20 @@ hall_collection$term <- gsub("\\..*","",rownames(hall_collection))
 colnames(hall_collection) <- c("symbol","term")
 hall_collection <- cbind.data.frame(hall_collection$term, hall_collection$symbol)
 
+library(clusterProfiler)
 for(contrast in contrast.vector){
   DEresults <- get(paste0("DEresults.", contrast))
   # Select significative genes
   degs <- subset(DEresults, c(padj<0.05 & abs(log2FoldChange)>0.585 & !is.na(symbol)))$symbol
   
-  if(length(degs)<2){
+  if((length(degs)<5 || is.na(degs) || is.null(degs))){
     print("There are no DEGS")}
   
   else{
     print(contrast)
+    print("Performing enrichment")
   # Prepare universe
-  universe <- pull(DEresults[,"symbol"])
+  universe <- DEresults[,"symbol"]
   
   # Perform enrichment
   ans <- clusterProfiler::enricher(gene = degs,
@@ -307,7 +309,11 @@ for(contrast in contrast.vector){
   # Plot enrichment
   p <- dotplot(ans, showCategory=10)
 
-  print(p)}
+  print(p)
+  ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/results/",
+                                contrast,"/", "ORA_", contrast_names[contrast], "noisyrdensity.png"), units="in", limitsize = FALSE, width=7, height=5)
+ }
+
   }
 ```
 
@@ -381,8 +387,6 @@ ggplot(GSEAlong, aes(x = Contrast, y = NES))+
   geom_point(aes(color = pathway, size= 1/FDR))+
   geom_line(aes(group = pathway, color=pathway, size= 1/FDR))+
   theme(legend.position = "none")
-
-ordenar la suma dels abs(NES)
 
 
 ```
