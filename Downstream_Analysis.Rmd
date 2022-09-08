@@ -62,42 +62,6 @@ meanlogFC <- meanlogFC %>%
 
 ```
 
-Això era per comparar els Wald stat entre dins i fora del gene set per resistents i sensibles per separat
-```{r}
-# # take wald stat for all genes inside and outside the gene sets
-# zin <- lapply(hallmark ,
-#             \(x) subset(all ,  all$symbol %in% x)[grep("stat",
-#                                                           colnames(all))])
-# zout <- lapply(hallmark ,
-#             \(x) subset(all ,  !(all$symbol %in% x))[grep("stat",
-#                                                           colnames(all))])
-# 
-# 
-# 
-# wilcox.s <- c()
-# for(geneset in 1:50){
-#      ins <- unlist(zin[[geneset]][1])
-#      outs <- unlist(zout[[geneset]][1])
-#      length(ins) <- length(outs)
-#      total <- cbind(ins, outs)
-#      wilcox.s <- c(wilcox.s, wilcox.test(ins,outs, data=total)$p.value)
-# }
-# 
-# wilcox.r <- c()
-# for(geneset in 1:50){
-#      ins <- unlist(zin[[geneset]][2])
-#      outs <- unlist(zout[[geneset]][2])
-#      length(ins) <- length(outs)
-#      total <- cbind(ins, outs)
-#      wilcox.r <- c(wilcox.r, wilcox.test(ins,outs, data=total)$p.value)
-#  }
-# 
-# meanlogFC$wilcox.s <- wilcox.s
-# meanlogFC$wilcox.r <- wilcox.r
-# 
-# meanlogFC$wilcox.signif <- ifelse(meanlogFC$wilcox.s < 0.05, ifelse(meanlogFC$wilcox.r<0.05, "Sensitive & Resistant", "Sensitive"), ifelse(wilcox.r<0.05, "Resistant", "None"))
-
-```
 
 Comparison of olaparib-treatment effect on sensitive and resistant PDX of average log2 fold change of gene set member minus non-member genes for every gene set in MsigDb Hallmark collection.
 
