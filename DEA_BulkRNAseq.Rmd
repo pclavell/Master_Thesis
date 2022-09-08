@@ -11,6 +11,7 @@ knitr::opts_chunk$set(cache = T, warning=F, message=F)
 
 
 ```{r packages_preparation}
+# Load packages
 setwd("C:/Users/paucl/Documents/TFM/DEA")
 
 packages <- c("dplyr","EDASeq", "stringr", "ggbio", "ggplot2","limma", "EnhancedVolcano", "biomaRt", "edgeR", "tweeDEseq", "clusterProfiler","DESeq2", "pheatmap", "fgsea", "noisyr", "ComplexHeatmap", "RColorBrewer")
@@ -39,6 +40,9 @@ phenodata.original$Original_PDX <- unlist(strsplit(phenodata.original$PDX_name, 
 
 # Set Original_PDX from PDX474.7 as PDX474.1 as it is the same tumour after adquiring resistance in patient
 phenodata.original$Original_PDX[grep("PDX474.7",phenodata.original$Original_PDX)] <- "PDX474.1"
+
+phenodata.original$Original_PDX <- strsplit(phenodata.original$Original_PDX, "DX")%>%
+  sapply( tail, 1 )
 
 # Set variables as factors in phenodata and set a reference level
 cols <- c("Clinical subtype","Tumor origin","Patient ID","Alteration in HRR pathway", "Drug", "Response", "Original_PDX")
@@ -120,6 +124,8 @@ for(sample in colnames(counts)){
 # Assign the names
 colnames(counts) <- new.names
 rownames(phenodata) <- new.names
+phenodata$Original_PDX <- factor(phenodata$Original_PDX)
+phenodata$`Clinical subtype` <- factor(phenodata$`Clinical subtype`)
 
 # Save number of samples
 nsamples <- nrow(phenodata)
@@ -164,9 +170,7 @@ ggplot2::ggplot(plotdf.line) +
 sum(!complete.cases(counts))
 
 # Save filtered counts
-write.csv(counts,
-          "C:/Users/paucl/Documents/TFM/DEA/preprocessing/human_protein_counts_noisyrdensity.csv",
-          row.names=T)
+# write.csv(counts, "C:/Users/paucl/Documents/TFM/DEA/preprocessing/human_protein_counts_noisyrdensity.csv", row.names=T)
 ```
 
 
@@ -205,11 +209,7 @@ plotRLE(as.matrix(TMM),
         outline=FALSE, ylim=c(-4, 4), 
         col=as.factor(phenodata$Group), main = 'TMM', las=2)
 ```
-Unsupervised data exploration with the 500 genes with higher variance across samples:
-- Hierarchical Clustering
-- PCA
-- Pair-wise Pearson Correlation
-- Heatmap
+
 
 ```{r exploration}
 ## PCA 
@@ -236,7 +236,8 @@ factoextra::fviz_pca_ind(pcaResults,
                          geom.ind = c("point"), 
                          repel = T, 
                          habillage = phenodata$Original_PDX, 
-                         max.overlaps = 5)+
+                         max.overlaps = 5,
+                         legend.title="Patient")+
   ggtitle(NULL)+
   theme_classic()+
   theme(legend.background = element_rect(fill = "white",
@@ -263,27 +264,37 @@ corr_coeff <- cor(TMM[selectedGenes,], method = "pearson")
 
 ## Heatmap
 # Prepare annotation
+set.seed(1234)
 color.pdx <- randomcoloR::randomColor(length(levels(phenodata$Original_PDX)))
 names(color.pdx) <- levels(phenodata$Original_PDX)
-color.volume <- circlize::colorRamp2(c(-100, 100), c("white", "black"))
-column_ha <- HeatmapAnnotation(`% Tumor Volume Change` = phenodata$`% Volume change`, 
+color.volume <- circlize::colorRamp2(c(-100, 0, 200), c("#FDE725FF", "white", "#440154FF"))
+color.subtype <- RColorBrewer::brewer.pal(n=length(levels(factor(phenodata$`Clinical subtype`))), name="Set2")
+names(color.subtype) <- levels(phenodata$`Clinical subtype`)
+
+
+column_ha <- HeatmapAnnotation(Patient = phenodata$Original_PDX,
+                               `HRR alteration` = phenodata$`HRR pathway alteration`,
+                               `Volume change (%)` = phenodata$`% Volume change`, 
                                Group = phenodata$Group,
-                               `Original Tumour` = phenodata$Original_PDX, 
-                               col = list(`% Tumor Volume Change` = color.volume,
-                                          `Original Tumour` = color.pdx,
+                               `Clinical subtype` = phenodata$`Clinical subtype`,
+                               col = list(`Volume change (%)` = color.volume,
+                                          Patient = color.pdx,
                                           Group = c("Sensitive Control" = "green",
                                                     "Sensitive Treated" = "dark green",
                                                     "Resistant Control" = "red",
-                                                    "Resistant Treated" = "dark red")),
-                               show_legend = c(TRUE, TRUE, FALSE))
+                                                    "Resistant Treated" = "dark red"),
+                                          `Clinical subtype` = color.subtype),
+                               show_legend = c(FALSE, TRUE, TRUE, TRUE, TRUE))
+
 # Plot heatmap of correlations
-heatmap.cor <- Heatmap(corr_coeff, top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Correlation"))
+heatmap.cor <- Heatmap(corr_coeff, top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Correlation", legend_direction = "vertical"), row_title_side="left")
+draw(heatmap.cor)
 
 # Plot heatmap of 100 genes with the most variance
 heatmap.sel <- Heatmap(t(scale(t(TMM[selectedGenes,]))), top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Expression"))
 
 # Save the heatmaps
-png("C:/Users/paucl/Documents/TFM/DEA/preprocessing/exploratoryHEATMAP_CORRELATIONS.png", width=12, height=5, units="in", res=1024)
+png("C:/Users/paucl/Documents/TFM/DEA/preprocessing/exploratoryHEATMAP_CORRELATIONSwithHRRalteration.png", width=12, height=5, units="in", res=1024)
 heatmap.cor # plot
 dev.off()
 
@@ -423,6 +434,8 @@ for(contrast in contrast.vector){
     labs(x = bquote(bold(.(Log[2] ~ FC)~bold(.(fancynames[contrast])))),
          y = bquote(bold(.(-Log[10] ~ FDR))))+
     theme_classic()+
+    xlim(-2,3)+
+    ylim(0,9)+
     theme(legend.position="top",
           legend.justification='left',
           axis.title.x = element_text(face="bold"))+
@@ -440,7 +453,7 @@ for(contrast in contrast.vector){
                  min.segment.length = 0.3)}
   print(p)
   ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/results/", contrast,
-               "/", "VOLCANO_", contrast_names[contrast] , "noisyrdensity",".png"),
+               "/", "VOLCANO_", contrast_names[contrast] , "noisyrdensity_lims",".png"),
         units="in", limitsize = FALSE, width=4, height=5)
   }
 
@@ -645,56 +658,36 @@ for(contrast in contrast.vector){
 
 
 
-
+# Heatmap of DEG between sensitive and resistant in controls
 ```{r}
-# Tests with POLR2J2 and GPALPP1
-TMM <- as.data.frame(TMM)
-
-# Create a dataframe with POLR2J2 TMM and phenodata information
-plotthis <- cbind.data.frame("POLR2J2"=t(TMM[grep("POLR2J2", rownames(TMM)),]), 
-                             phenodata[,c("Group", "Drug", "Response", "PDX_name", "Original_PDX")])
-
-# Look for differences in POLR2J2 expression
-sensitiveALL <- subset(plotthis, Response=="Sensitive")$POLR2J2
-resistantALL <- subset(plotthis, Response=="Resistant")$POLR2J2
-
-var.test(sensitiveALL, resistantALL)
-
-length(sensitiveALL) <- length(resistantALL)
-
-t.test(sensitiveALL, 
-       resistantALL,
-       alternative = "less",
-       var.equal = T)
-
-        
-# Subset samples with paired adquired resistances
-plotthis <- plotthis[plotthis$Original_PDX%in%levels(plotthis$Original_PDX)[table(plotthis$Original_PDX)==4],]
-
-# Order by PDX_name and Drug
-plotthis <- plotthis[order(plotthis$PDX_name, plotthis$Drug),]
-
-ggplot(plotthis, aes(x=Response, y=POLR2J2, fill=Response))+
-  geom_boxplot()+
-  geom_point(aes(group= PDX_name))+
-  theme_classic()
-t.test(plotthis[plotthis$Response=="Sensitive", "POLR2J2"], 
-       plotthis[plotthis$Response=="Resistant", "POLR2J2"], 
-       paired = T,
-       alternative = "less",
-       var.equal = T)
+# Prepare annotation
+set.seed(1234)
+color.pdx <- randomcoloR::randomColor(length(levels(phenodata[grep("_Ctl",rownames(phenodata)),]$Original_PDX)))
+names(color.pdx) <- levels(phenodata[grep("_Ctl",rownames(phenodata)),]$Original_PDX)
+color.volume <- circlize::colorRamp2(c(-100, 0, 200), c("#FDE725FF", "white", "#440154FF"))
+color.subtype <- RColorBrewer::brewer.pal(n=length(levels(factor(phenodata[grep("_Ctl",rownames(phenodata)),]$`Clinical subtype`))), name="Set2")
+names(color.subtype) <- levels(phenodata[grep("_Ctl",rownames(phenodata)),]$`Clinical subtype`)
 
 
+column_ha <- HeatmapAnnotation(Patient = phenodata[grep("_Ctl",rownames(phenodata)),]$Original_PDX,
+                               `Volume change (%)` = phenodata[grep("_Ctl",rownames(phenodata)),]$`% Volume change`, 
+                               Group = phenodata[grep("_Ctl",rownames(phenodata)),]$Group,
+                               `Clinical subtype` = phenodata[grep("_Ctl",rownames(phenodata)),]$`Clinical subtype`,
+                               col = list(`Volume change (%)` = color.volume,
+                                          Patient = color.pdx,
+                                          Group = c("Sensitive Control" = "green",
+                                                    "Sensitive Treated" = "dark green",
+                                                    "Resistant Control" = "red",
+                                                    "Resistant Treated" = "dark red"),
+                                          `Clinical subtype` = color.subtype),
+                               show_legend = c(FALSE, TRUE, TRUE, TRUE))
 
-library(ComplexHeatmap)
-png("C:/Users/paucl/Documents/TFM/DEA/results/heatmap_POLR2J2_GPALPP1.png", width=12, height=5, units="in", res=1024)
-col_fun = circlize::colorRamp2(c(-100, 100), c("white", "black"))
-column_ha <- HeatmapAnnotation(Volume = phenodata$`% Volume change`, 
-                               Group = phenodata$Group,
-                               col = list(Volume = col_fun, 
-                                          Group = c("Sensitive Control" = "green", "Sensitive Treated" = "dark green", "Resistant Control" = "red", "Resistant Treated" = "dark red")))
-input <- t(scale(t(na.omit(as.data.frame(TMM)[c("GPALPP1","POLR2J2"),])))) #"GPALPP1","POLR2J2"
-Heatmap(input, top_annotation = column_ha, show_column_names=T)
+
+input <- t(scale(t(na.omit(as.data.frame(TMM)[c("MEGF6","POLR2J2", "MAP7D2","IDNK"),grep("_Ctl",colnames(TMM))])))) 
+
+# Save heatmap 
+png("C:/Users/paucl/Documents/TFM/DEA/results/resistance_control/heatmap_DEGS_sensitivity_control.png", width=12, height=5, units="in", res=1024)
+Heatmap(input, top_annotation = column_ha, show_column_names=T,  heatmap_legend_param = list(title = "Scaled TMM", legend_direction = "vertical"),)
 dev.off()
 
 ```
