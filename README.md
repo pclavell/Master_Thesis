@@ -12,8 +12,10 @@ This github repository contains all the code that has been used to perform the a
 
 5) Supplementary figures PAU CLAVELL.pdf includes all the supplementary figures referenced in the manuscript.
 
-6) nextflow.config.txt is the custom config file
+6) Workflow.pdf is the scheme of the analysis workflow. 
 
-7) sbatch splitwholeh.sh is the bash script for slurm with the nf-core rnaseq pipeline to obtain human counts
+7) nextflow.config.txt is the custom config file
 
-8) sbatch splitwholem.sh is the bash script for slurm with the nf-core rnaseq pipeline to obtain mouse counts
+8) sbatch splitwholeh.sh is the bash script for slurm with the nf-core rnaseq pipeline to obtain human counts
+
+9) sbatch splitwholem.sh is the bash script for slurm with the nf-core rnaseq pipeline to obtain mouse counts
