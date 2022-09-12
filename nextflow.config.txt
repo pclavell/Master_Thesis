@@ -1,0 +1,34 @@
+params {
+  config_profile_description = 'bioinfo config'
+  config_profile_contact = 'pauclavellrevelles@gmail.com'
+  singularity_cache_dir = "/mnt/bioinfnas/bioinformatics/projects/20220406_VSerra_PClavell_Parp/images"
+}
+singularity {
+  enabled = true
+  autoMounts = true
+  cacheDir=params.singularity_cache_dir
+}
+executor {
+  name = "slurm"
+  queueSize = 12
+}
+process {
+  executor = "slurm"
+  clusterOptions = '--export=all --nodes=1 --ntasks=1 -p long'
+}
+params {
+  max_memory = 90.GB
+  max_cpus = 25
+  max_time = 24.h
+}
+profiles {
+    big_data {
+      process {
+        withName: BBMAP_BBSPLIT {
+          memory = 90.GB
+          time = 24.h
+        }
+      }
+    }
+}
+
