@@ -245,7 +245,7 @@ factoextra::fviz_pca_ind(pcaResults,
                                          linetype = "solid",
                                          color = "black"))
 ggsave(paste0("C:/Users/paucl/Documents/TFM/DEA/preprocessing/PCApdx",".png"),
-        units="in", limitsize = FALSE, width=6, height=5)
+        units="in", limitsize = FALSE, width=6, height=9)
 
 
 ## Compute the variance of each gene across samples and sort them to select top 100 genes
@@ -273,7 +273,7 @@ names(color.subtype) <- levels(phenodata$`Clinical subtype`)
 
 
 column_ha <- HeatmapAnnotation(Patient = phenodata$Original_PDX,
-                               `HRR alteration` = phenodata$`HRR pathway alteration`,
+                               #`HRR alteration` = phenodata$`HRR pathway alteration`,
                                `Volume change (%)` = phenodata$`% Volume change`, 
                                Group = phenodata$Group,
                                `Clinical subtype` = phenodata$`Clinical subtype`,
@@ -291,7 +291,7 @@ heatmap.cor <- Heatmap(corr_coeff, top_annotation = column_ha, show_row_names = 
 draw(heatmap.cor)
 
 # Plot heatmap of 100 genes with the most variance
-heatmap.sel <- Heatmap(t(scale(t(TMM[selectedGenes,]))), top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Expression"))
+heatmap.sel <- Heatmap(t(scale(t(TMM[selectedGenes,]))), top_annotation = column_ha, show_row_names = F, heatmap_legend_param = list(title = "Scaled TMM"))
 
 # Save the heatmaps
 png("C:/Users/paucl/Documents/TFM/DEA/preprocessing/exploratoryHEATMAP_CORRELATIONSwithHRRalteration.png", width=12, height=5, units="in", res=1024)
@@ -374,6 +374,13 @@ for(contrast in contrast.vector){
 ```
 
 
+```{r}
+
+```
+
+
+
+
 # Volcano plots
 
 ```{r}
@@ -389,8 +396,11 @@ for(contrast in contrast.vector){
                           contrast, "/toptable_",
                           contrast_names[contrast],"noisyrdensity.csv")))}
 
+# QQ-plot of p-values
+for(contrast in contrast.vector){
+  GWASTools::qqPlot(get(paste0("DEresults.", contrast))$pvalue)}
 
-# ACABAR D'ARREGLAR NOMS DELS EIXOS PER VEURE ELS CONTRASTOS I FER ELS PUNTS SIGNIFICATIUS GRANS
+
 fancynames <- c("Treated vs Control (sensitive)", "Treated vs Control (resistant)", "Sensitive vs Resistant (control)", "Sensitive vs Resistant (treated)")
 names(fancynames) <- contrast.vector
 # Volcanos

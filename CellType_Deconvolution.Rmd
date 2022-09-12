@@ -103,6 +103,39 @@ nsamples <- nrow(phenodata)
 ```
 
 ```{r}
+## Use noisyr package to remove noise from the count table (low counts, basically)
+
+# 1st: obtention of expression summary 
+similarity <- calculate_expression_similarity_counts(counts)
+
+# 2nd: calculate threshold
+thresholds <- calculate_noise_threshold(similarity,
+                                        method.chosen="Density_based-No_normalisation")
+# 3rd: remove genes under the threshold
+counts <- remove_noise_from_matrix(counts,
+                                    thresholds)
+
+# Plot abundance-correlation relation
+plotlist <- plot_expression_similarity(similarity)
+plotdf.line <- tibble::tibble()
+for(i in 1:64){
+  lineid <- i * 2 - 1
+  plotdf.line <- rbind(
+    plotdf.line, 
+    dplyr::mutate(plotlist[[lineid]]$data,
+                  Sample=colnames(counts)[i]))
+}
+ggplot2::ggplot(plotdf.line) +
+    ggplot2::theme_minimal() + 
+    ggplot2::geom_line(ggplot2::aes(x=x, y=y, colour=Sample)) +
+    ggplot2::geom_smooth(ggplot2::aes(x,y,colour=Sample), method="loess",
+                         formula= y ~ x, span=0.1) +
+    ggplot2::ylim(0:1) +
+    ggplot2::xlab("log2(expression)") +
+    ggplot2::ylab("Pearson correlation") +
+    ggplot2::geom_hline(yintercept=0.25, color="black")+
+  theme(legend.position = "none")
+
 # Check that there are no NA
 non_na <- complete.cases(counts)
 sum(!non_na)# should be 0
@@ -201,6 +234,12 @@ rownames(NormByTPM) <- toupper(gene_metadata$gene_symbol)
 NormByTPM <- as.data.frame(NormByTPM)
 ```
 
+```{r}
+levels(phenodata$Group) <- c("Resistant Control", "Resistant Treated", "Sensitive Control", "Sensitive Treated")
+phenodata$Group <- factor(phenodata$Group, levels=c("Sensitive Control", "Sensitive Treated", "Resistant Control", "Resistant Treated"))
+```
+
+
 
 # Application of Deconvolution Methods
 
@@ -233,9 +272,16 @@ ggplot(cellFrac)+
   geom_col(aes(x = sample, y = value, fill = cell))
 
 # Boxplot dodged by group
-ggplot(cellFrac)+
+ggplot(cellFrac %>%
+         filter(cell!="CAFs"))+
   geom_boxplot(aes(x = group, y = value, position = "dodge", fill = cell), trim=TRUE)+
-  theme_classic()
+  theme_classic()+
+  guides(fill=guide_legend(title="Cell Type"))+
+  xlab("")+
+  ylab("Proportion")+
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/cell_type_deconvolution/results/EPIC.png"),
+        units="in", limitsize = FALSE, width=6, height=5)
 
 # Boxplot of cell types by group
 for(celltype in levels(as.factor(cellFrac$cell))){
@@ -253,7 +299,7 @@ print(ggplot(cellFrac %>%
 library(IOBR)
 
 # Run cibersort
-cibersort <- CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN = T, absolute = F) # absolute=T, abs_method = "sig.score"                            #better wiht counts (jin liu et al 2021)
+cibersort <- CIBERSORT(sig_matrix = lm22, mixture_file = as.data.frame(NormByTPM), perm = 1000, QN = T, absolute = T, abs_method = "sig.score") # absolute=T, abs_method = "sig.score"                            #better wiht counts (jin liu et al 2021)
 
 # Add columns with conditions info
 cibersort <- as.data.frame(cibersort)
@@ -269,6 +315,17 @@ ciberlong$cell <- as.factor(ciberlong$cell)
 # Remove unwanted info for plotting
 ciberlong <- ciberlong%>%
   filter(!(cell%in%c("P-value","Correlation","RMSE")))
+
+# Boxplot dodged by group
+ggplot(ciberlong)+
+  geom_boxplot(aes(x = group, y = value, position = "dodge", fill = cell), trim=TRUE)+
+  theme_classic()+
+  guides(fill=guide_legend(title="Cell Type"))+
+  xlab("")+
+  ylab("Proportion")+
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/cell_type_deconvolution/results/CIBERSORTabs.png"),
+        units="in", limitsize = FALSE, width=10, height=6)
 
 # Boxplot of cell types by group
 for(celltype in levels(as.factor(ciberlong$cell))){
@@ -286,7 +343,7 @@ print(ggplot(ciberlong %>%
 library(MCPcounter)
 
 # Run MCPcounter
-mcpres <- MCPcounter.estimate(TMM,
+mcpres <- MCPcounter.estimate(NormByTPM,
                     featuresType="HUGO_symbols")
 
 # Add group info
@@ -297,6 +354,17 @@ mcpres$sample <- rownames(mcpres)
 # Pivot data
 mcpreslong <- tidyr::pivot_longer(mcpres, 1:9, "cell")
 
+# Boxplot dodged by group
+ggplot(mcpreslong%>%
+               filter(cell != "Fibroblasts"))+
+  geom_boxplot(aes(x = group, y = value, position = "dodge", fill = cell), trim=TRUE)+
+  theme_classic()+
+  guides(fill=guide_legend(title="Cell Type"))+
+  xlab("")+
+  ylab("Absolute abundance")+
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/cell_type_deconvolution/results/MCPcounter.png"),
+        units="in", limitsize = FALSE, width=6, height=5)
 
 # Boxplot of cell types by group
 for(celltype in levels(as.factor(mcpreslong$cell))){
@@ -327,8 +395,17 @@ quantires <- quantiseqr::run_quantiseq(NormByTPM,
 quantires$group <- phenodata$Group
 quantilong <- tidyr::pivot_longer(quantires, 2:12, "cell" )
 
-# Quantiseq plot
-quantiplot(quantires)
+# Boxplot dodged by group
+ggplot(quantilong%>%
+         filter(cell != "Other"))+
+  geom_boxplot(aes(x = group, y = value, position = "dodge", fill = cell), trim=TRUE)+
+  theme_classic()+
+  guides(fill=guide_legend(title="Cell Type"))+
+  xlab("")+
+  ylab("Proportion")+
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/cell_type_deconvolution/results/quantiseqr.png"),
+        units="in", limitsize = FALSE, width=6, height=5)
 
 # Boxplot of cell types by group
 for(celltype in levels(as.factor(quantilong$cell))){
@@ -341,7 +418,7 @@ print(ggplot(quantilong %>%
 
 ```{r}
 # TIMER (reference-based method)
-timer <- immunedeconv::deconvolute_timer(TMM, indications = rep("brca", dim(TMM)[2]))
+timer <- immunedeconv::deconvolute_timer(NormByTPM, indications = rep("brca", dim(NormByTPM)[2]))
 
 # Add group info and pivot data
 timer <- as.data.frame(t(timer))
@@ -349,16 +426,39 @@ timer$group <- phenodata$Group
 
 timerlong <- pivot_longer(timer, 1:6, "cell")
 
+
+# Boxplot dodged by group
+ggplot(timerlong)+
+  geom_boxplot(aes(x = group, y = value, position = "dodge", fill = cell), trim=TRUE)+
+  theme_classic()+
+  guides(fill=guide_legend(title="Cell Type"))+
+  xlab("")+
+  ylab("Proportion")+
+  scale_x_discrete(guide = guide_axis(n.dodge = 2))
+ggsave(paste0("C:/Users/paucl/Documents/TFM/cell_type_deconvolution/results/TIMER.png"),
+        units="in", limitsize = FALSE, width=6, height=5)
+
 # Boxplot of cell types by group
 for(celltype in levels(as.factor(quantilong$cell))){
 print(ggplot(quantilong %>%
          filter(cell == celltype), aes(x = group, y = value, fill = cell))+
   geom_boxplot()  +
   theme_classic() +
-  ggtitle(celltype))}
+  ggtitle(celltype))+
+      stat_compare_means(method = "anova", label.y = 0)+        # Add global annova p-value
+  stat_compare_means(label = "p.signif", method = "t.test",
+                     ref.group = ".all.")}
+
+for(celltype in levels(as.factor(quantilong$cell))){
+print(ggplot(quantilong %>%
+         filter(cell == celltype), aes(x = group, y = value, fill = cell))+
+  geom_boxplot()  +
+  theme_classic() +
+  ggtitle(celltype))+
+      stat_compare_means(method = "anova", label.y = 0)+        # Add global annova p-value
+  stat_compare_means(label = "p.signif", method = "t.test",
+                     ref.group = ".all.")}
 ``` 
-
-
 
 
 ```{r}
@@ -402,3 +502,16 @@ column_ha = HeatmapAnnotation(foo1 = phenodata$Group)
 nkgepscaled <-pheatmap:::scale_rows(nkgep)
 Heatmap(nkgepscaled, top_annotation=column_ha)
 ```
+
+```{r}
+summary(mtcars)
+
+
+ggplot(mtcars, aes(x = factor(cyl), y = disp))+
+  geom_boxplot()  +
+  theme_classic() +
+      stat_compare_means(method = "anova", label.y = 0)+        # Add global anova p-value
+  stat_compare_means(label = "p.signif", method = "t.test",
+                     ref.group = ".all.")
+```
+

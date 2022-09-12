@@ -1,6 +1,7 @@
 # CNAG
 ```{r}
 library(tidyverse)
+library(ComplexHeatmap)
 # Load CNAG counts
 cnag.original <- read.delim("C:/Users/paucl/Documents/TFM/dades/SERRAVIO_03_04_ProcessatCNAG/COUNTS_by_genes/COUNTS_genes_SERRAVIO_03_04", header=T)
 
@@ -62,11 +63,11 @@ length(intersect(mycounts$symbols, cnag.h$symbols)) # 17818
 cnag.h <- cnag.h[colnames(mycounts)]
 
 # Inner join to compare only genes in both sets
-mix <- inner_join(cnag.h, mycounts, by="symbols", suffix=c(".C", ".V"))
+mix <- inner_join(cnag.h, mycounts, by="symbols", suffix=c(".C", ".N"))
 mix <- mix[order(colnames(mix))]
 
 # Correlation without filtering
-corr_raw <- cor(mix[grep("\\.C", colnames(mix))], mix[grep("\\.V", colnames(mix))])
+corr_raw <- cor(mix[grep("\\.C", colnames(mix))], mix[grep("\\.N", colnames(mix))])
 raw_heatmap <- ComplexHeatmap::Heatmap(corr_raw, 
                         cluster_rows = F, 
                         cluster_columns = F,
@@ -77,7 +78,7 @@ raw_heatmap <- ComplexHeatmap::Heatmap(corr_raw,
 
 # Correlation with filtering in 0 count genes
 mix.z <- mix[rowSums(mix[-grep("symbols", colnames(mix))])>16,]
-corr_filtered <- cor(mix.z[grep("\\.C", colnames(mix.z))], mix.z[grep("\\.V", colnames(mix.z))])
+corr_filtered <- cor(mix.z[grep("\\.C", colnames(mix.z))], mix.z[grep("\\.N", colnames(mix.z))])
 filtered_heatmap <- ComplexHeatmap::Heatmap(corr_filtered, 
                         cluster_rows = F, 
                         cluster_columns = F,
